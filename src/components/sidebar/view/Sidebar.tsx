@@ -83,6 +83,8 @@ function Sidebar({
     confirmDeleteSession,
     requestProjectDelete,
     confirmDeleteProject,
+    handleHideProject,
+    handleUnhideProject,
     loadMoreSessions,
     handleProjectSelect,
     refreshProjects,
@@ -162,6 +164,8 @@ function Sidebar({
       void saveProjectName(projectName);
     },
     onDeleteProject: requestProjectDelete,
+    onHideProject: handleHideProject,
+    onUnhideProject: handleUnhideProject,
     onSessionSelect: handleSessionClick,
     onDeleteSession: showDeleteSessionConfirmation,
     onLoadMoreSessions: (project) => {

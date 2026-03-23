@@ -93,6 +93,13 @@ export const api = {
     authenticatedFetch(`/api/projects/${projectName}${force ? '?force=true' : ''}`, {
       method: 'DELETE',
     }),
+  hideProject: (projectName, hidden = true) =>
+    authenticatedFetch(`/api/projects/${projectName}/hide`, {
+      method: 'PUT',
+      body: JSON.stringify({ hidden }),
+    }),
+  getArchivedProjects: () =>
+    authenticatedFetch('/api/projects/archived'),
   searchConversationsUrl: (query, limit = 50) => {
     const token = localStorage.getItem('auth-token');
     const params = new URLSearchParams({ q: query, limit: String(limit) });

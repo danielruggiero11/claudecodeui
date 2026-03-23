@@ -252,11 +252,9 @@ async function generateDisplayName(projectName, actualProjectDir = null) {
     // Fall back to path-based naming if package.json doesn't exist or can't be read
   }
 
-  // If it starts with /, it's an absolute path
-  if (projectPath.startsWith('/')) {
-    const parts = projectPath.split('/').filter(Boolean);
-    // Return only the last folder name
-    return parts[parts.length - 1] || projectPath;
+  // Extract just the folder name from absolute paths (works on both Unix and Windows)
+  if (path.isAbsolute(projectPath)) {
+    return path.basename(projectPath) || projectPath;
   }
 
   return projectPath;
@@ -381,7 +379,7 @@ async function extractProjectDirectory(projectName) {
   }
 }
 
-async function getProjects(progressCallback = null) {
+async function getProjects(progressCallback = null, { includeHidden = false } = {}) {
   const claudeDir = path.join(os.homedir(), '.claude', 'projects');
   const config = await loadProjectConfig();
   const projects = [];
@@ -422,6 +420,11 @@ async function getProjects(progressCallback = null) {
         });
       }
 
+      // Skip hidden projects unless explicitly requested
+      if (!includeHidden && config[entry.name]?.hidden) {
+        continue;
+      }
+
       // Extract actual project directory from JSONL sessions
       const actualProjectDir = await extractProjectDirectory(entry.name);
 
@@ -436,6 +439,7 @@ async function getProjects(progressCallback = null) {
         displayName: customName || autoDisplayName,
         fullPath: fullPath,
         isCustomName: !!customName,
+        hidden: !!config[entry.name]?.hidden,
         sessions: [],
         geminiSessions: [],
         sessionMeta: {
@@ -529,6 +533,11 @@ async function getProjects(progressCallback = null) {
   // Add manually configured projects that don't exist as folders yet
   for (const [projectName, projectConfig] of Object.entries(config)) {
     if (!existingProjects.has(projectName) && projectConfig.manuallyAdded) {
+      // Skip hidden projects unless explicitly requested
+      if (!includeHidden && projectConfig.hidden) {
+        continue;
+      }
+
       processedProjects++;
 
       // Emit progress for manual projects
@@ -559,6 +568,7 @@ async function getProjects(progressCallback = null) {
         displayName: projectConfig.displayName || await generateDisplayName(projectName, actualProjectDir),
         fullPath: actualProjectDir,
         isCustomName: !!projectConfig.displayName,
+        hidden: !!projectConfig.hidden,
         isManuallyAdded: true,
         sessions: [],
         geminiSessions: [],
@@ -1097,6 +1107,17 @@ async function renameProject(projectName, newDisplayName) {
     };
   }
 
+  await saveProjectConfig(config);
+  return true;
+}
+
+// Hide/unhide a project (archive without deleting)
+async function hideProject(projectName, hidden = true) {
+  const config = await loadProjectConfig();
+  config[projectName] = {
+    ...config[projectName],
+    hidden: hidden
+  };
   await saveProjectConfig(config);
   return true;
 }
@@ -2544,6 +2565,7 @@ export {
   getSessionMessages,
   parseJsonlSessions,
   renameProject,
+  hideProject,
   deleteSession,
   isProjectEmpty,
   deleteProject,

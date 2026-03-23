@@ -41,6 +41,7 @@ export interface Project {
   geminiSessions?: ProjectSession[];
   sessionMeta?: ProjectSessionMeta;
   taskmaster?: ProjectTaskmasterInfo;
+  hidden?: boolean;
   [key: string]: unknown;
 }
 

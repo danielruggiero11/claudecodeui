@@ -281,21 +281,6 @@ export function useSidebarController({
     };
   }, [searchFilter, searchMode]);
 
-  const handleTouchClick = useCallback(
-    (callback: () => void) =>
-      (event: React.TouchEvent<HTMLElement>) => {
-        const target = event.target as HTMLElement;
-        if (target.closest('.overflow-y-auto') || target.closest('[data-scroll-container]')) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        callback();
-      },
-    [],
-  );
-
   const toggleProject = useCallback((projectName: string) => {
     setExpandedProjects((prev) => {
       const next = new Set<string>();
@@ -484,6 +469,28 @@ export function useSidebarController({
     }
   }, [deleteConfirmation, onProjectDelete, t]);
 
+  const handleHideProject = useCallback(async (project: Project) => {
+    try {
+      const response = await api.hideProject(project.name, true);
+      if (response.ok) {
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Error hiding project:', error);
+    }
+  }, [onRefresh]);
+
+  const handleUnhideProject = useCallback(async (project: Project) => {
+    try {
+      const response = await api.hideProject(project.name, false);
+      if (response.ok) {
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Error unhiding project:', error);
+    }
+  }, [onRefresh]);
+
   const loadMoreSessions = useCallback(
     async (project: Project) => {
       const hasMoreOverride = projectHasMoreOverrides[project.name];
@@ -612,6 +619,8 @@ export function useSidebarController({
     confirmDeleteSession,
     requestProjectDelete,
     confirmDeleteProject,
+    handleHideProject,
+    handleUnhideProject,
     loadMoreSessions,
     handleProjectSelect,
     refreshProjects,

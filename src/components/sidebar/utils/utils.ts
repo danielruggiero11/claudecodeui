@@ -178,9 +178,11 @@ export const sortProjects = (
 export const filterProjects = (projects: Project[], searchFilter: string): Project[] => {
   const normalizedSearch = searchFilter.trim().toLowerCase();
   if (!normalizedSearch) {
-    return projects;
+    // When not searching, hide archived projects
+    return projects.filter((project) => !project.hidden);
   }
 
+  // When searching, include archived projects (they'll get a visual indicator in the UI)
   return projects.filter((project) => {
     const displayName = (project.displayName || project.name).toLowerCase();
     const projectName = project.name.toLowerCase();

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Edit3, Folder, FolderOpen, Star, Trash2, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronRight, Edit3, Eye, EyeOff, Folder, FolderOpen, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
@@ -33,6 +33,8 @@ type SidebarProjectItemProps = {
   onCancelEditingProject: () => void;
   onSaveProjectName: (projectName: string) => void;
   onDeleteProject: (project: Project) => void;
+  onHideProject: (project: Project) => void;
+  onUnhideProject: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onDeleteSession: (
     projectName: string,
@@ -83,6 +85,8 @@ export default function SidebarProjectItem({
   onCancelEditingProject,
   onSaveProjectName,
   onDeleteProject,
+  onHideProject,
+  onUnhideProject,
   onSessionSelect,
   onDeleteSession,
   onLoadMoreSessions,
@@ -95,6 +99,7 @@ export default function SidebarProjectItem({
 }: SidebarProjectItemProps) {
   const isSelected = selectedProject?.name === project.name;
   const isEditing = editingProject === project.name;
+  const isArchived = !!project.hidden;
   const hasMoreSessions = project.sessionMeta?.hasMore === true;
   const sessionCountDisplay = getSessionCountDisplay(sessions, hasMoreSessions);
   const sessionCountLabel = `${sessionCountDisplay} session${sessions.length === 1 ? '' : 's'}`;
@@ -116,7 +121,7 @@ export default function SidebarProjectItem({
   };
 
   return (
-    <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
+    <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none', isArchived && 'opacity-50')}>
       <div className="md:group group">
         <div className="md:hidden">
           <div
@@ -173,7 +178,14 @@ export default function SidebarProjectItem({
                   ) : (
                     <>
                       <div className="flex min-w-0 flex-1 items-center justify-between">
-                        <h3 className="truncate text-sm font-medium text-foreground">{project.displayName}</h3>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <h3 className="truncate text-sm font-medium text-foreground">{project.displayName}</h3>
+                          {isArchived && (
+                            <span className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              <Archive className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </div>
                         {tasksEnabled && (
                           <TaskIndicator
                             status={taskStatus}
@@ -233,6 +245,20 @@ export default function SidebarProjectItem({
                             : 'text-gray-600 dark:text-gray-400',
                         )}
                       />
+                    </button>
+
+                    <button
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-gray-500/10 active:scale-90 dark:border-gray-800 dark:bg-gray-900/30"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (isArchived) { onUnhideProject(project); } else { onHideProject(project); }
+                      }}
+                      title={isArchived ? t('tooltips.unhideProject', 'Restore project') : t('tooltips.hideProject', 'Hide project')}
+                    >
+                      {isArchived
+                        ? <Eye className="h-4 w-4 text-primary" />
+                        : <EyeOff className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                      }
                     </button>
 
                     <button
@@ -311,8 +337,16 @@ export default function SidebarProjectItem({
                 </div>
               ) : (
                 <div>
-                  <div className="truncate text-sm font-semibold text-foreground" title={project.displayName}>
-                    {project.displayName}
+                  <div className="flex items-center gap-1.5">
+                    <div className="truncate text-sm font-semibold text-foreground" title={project.displayName}>
+                      {project.displayName}
+                    </div>
+                    {isArchived && (
+                      <span className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <Archive className="h-2.5 w-2.5" />
+                        Archived
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {sessionCountDisplay}
@@ -373,7 +407,7 @@ export default function SidebarProjectItem({
                   />
                 </div>
                 <div
-                  className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"
+                  className="hidden h-6 w-6 cursor-pointer items-center justify-center rounded hover:bg-accent group-hover:flex"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStartEditingProject(project);
@@ -383,7 +417,20 @@ export default function SidebarProjectItem({
                   <Edit3 className="h-3 w-3" />
                 </div>
                 <div
-                  className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-red-50 group-hover:opacity-100 dark:hover:bg-red-900/20"
+                  className="hidden h-6 w-6 cursor-pointer items-center justify-center rounded hover:bg-accent group-hover:flex"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (isArchived) { onUnhideProject(project); } else { onHideProject(project); }
+                  }}
+                  title={isArchived ? t('tooltips.unhideProject', 'Restore project') : t('tooltips.hideProject', 'Hide project')}
+                >
+                  {isArchived
+                    ? <Eye className="h-3 w-3 text-primary" />
+                    : <EyeOff className="h-3 w-3 text-muted-foreground" />
+                  }
+                </div>
+                <div
+                  className="hidden h-6 w-6 cursor-pointer items-center justify-center rounded hover:bg-red-50 group-hover:flex dark:hover:bg-red-900/20"
                   onClick={(event) => {
                     event.stopPropagation();
                     onDeleteProject(project);
