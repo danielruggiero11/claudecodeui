@@ -11,7 +11,6 @@ import type {
   SetStateAction,
   TouchEvent,
 } from 'react';
-import MicButton from '../../../mic-button/view/MicButton';
 import type { PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
 import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
@@ -92,6 +91,11 @@ interface ChatComposerProps {
   isTextareaExpanded: boolean;
   sendByCtrlEnter?: boolean;
   onTranscript: (text: string) => void;
+  isVoiceRecording: boolean;
+  isVoiceSupported: boolean;
+  isVoiceEnabled: boolean;
+  voiceError: string | null;
+  onToggleVoiceRecording: () => void;
 }
 
 export default function ChatComposer({
@@ -149,6 +153,11 @@ export default function ChatComposer({
   isTextareaExpanded,
   sendByCtrlEnter,
   onTranscript,
+  isVoiceRecording,
+  isVoiceSupported,
+  isVoiceEnabled,
+  voiceError,
+  onToggleVoiceRecording,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const textareaRect = textareaRef.current?.getBoundingClientRect();
@@ -321,9 +330,43 @@ export default function ChatComposer({
               </svg>
             </button>
 
-            <div className="absolute right-16 top-1/2 -translate-y-1/2 transform sm:right-16" style={{ display: 'none' }}>
-              <MicButton onTranscript={onTranscript} className="h-10 w-10 sm:h-10 sm:w-10" />
-            </div>
+            {isVoiceEnabled && isVoiceSupported && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleVoiceRecording();
+                }}
+                className={`absolute right-14 top-1/2 flex h-8 w-8 -translate-y-1/2 transform items-center justify-center rounded-lg transition-all duration-200 sm:right-16 sm:h-9 sm:w-9 ${
+                  isVoiceRecording
+                    ? 'bg-red-500 text-white shadow-md shadow-red-500/30'
+                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                }`}
+                title={isVoiceRecording ? 'Stop listening' : 'Start voice input'}
+              >
+                <svg
+                  className={`h-4 w-4 sm:h-[18px] sm:w-[18px] ${isVoiceRecording ? 'animate-pulse' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 10v2a7 7 0 0 1-14 0v-2"
+                  />
+                  <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" />
+                  <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
 
             <button
               type="submit"
@@ -343,13 +386,23 @@ export default function ChatComposer({
               </svg>
             </button>
 
-            <div
-              className={`pointer-events-none absolute bottom-1 left-12 right-14 hidden text-xs text-muted-foreground/50 transition-opacity duration-200 sm:right-40 sm:block ${
-                input.trim() ? 'opacity-0' : 'opacity-100'
-              }`}
-            >
-              {sendByCtrlEnter ? t('input.hintText.ctrlEnter') : t('input.hintText.enter')}
-            </div>
+            {voiceError && (
+              <div className="pointer-events-none absolute bottom-1 left-12 right-14 truncate text-xs text-red-400 sm:right-40">
+                {voiceError}
+              </div>
+            )}
+
+            {!voiceError && (
+              <div
+                className={`pointer-events-none absolute bottom-1 left-12 right-14 hidden text-xs text-muted-foreground/50 transition-opacity duration-200 sm:right-40 sm:block ${
+                  input.trim() && !isVoiceRecording ? 'opacity-0' : 'opacity-100'
+                }`}
+              >
+                {isVoiceRecording
+                  ? 'Listening...'
+                  : sendByCtrlEnter ? t('input.hintText.ctrlEnter') : t('input.hintText.enter')}
+              </div>
+            )}
           </div>
         </div>
       </form>}

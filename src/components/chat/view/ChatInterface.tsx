@@ -9,6 +9,7 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useSessionStore } from '../../../stores/useSessionStore';
+import { useVoiceInput, loadVoiceSettings } from '../../../hooks/useVoiceInput';
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
 
@@ -201,6 +202,82 @@ function ChatInterface({
     setClaudeStatus,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
+  });
+
+  // Voice input integration
+  const voiceSettings = loadVoiceSettings();
+
+  // Track how many characters at the end of the input are voice-interim.
+  // This is an exact count so slicing is always reliable regardless of content matching.
+  const voiceInterimLenRef = useRef(0);
+
+  const autoResizeTextarea = useCallback(() => {
+    setTimeout(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }, 0);
+  }, [textareaRef]);
+
+  // Strip the current interim chars off the end of the input and return the base.
+  const stripInterim = (prev: string): string => {
+    if (voiceInterimLenRef.current > 0 && prev.length >= voiceInterimLenRef.current) {
+      return prev.slice(0, prev.length - voiceInterimLenRef.current);
+    }
+    return prev;
+  };
+
+  // Finalized text — permanently append to whatever is in the textarea right now.
+  const handleVoiceFinalText = useCallback((text: string) => {
+    if (!text) return;
+    setInput((prev) => {
+      const base = stripInterim(prev);
+      voiceInterimLenRef.current = 0;
+      const separator = base && !base.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      return base + separator + text;
+    });
+    autoResizeTextarea();
+  }, [setInput, autoResizeTextarea]);
+
+  // Interim text — replace previous interim at the end of the input.
+  const handleVoiceInterimText = useCallback((text: string) => {
+    setInput((prev) => {
+      const base = stripInterim(prev);
+      if (!text) {
+        voiceInterimLenRef.current = 0;
+        return base;
+      }
+      const separator = base && !base.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      const appended = separator + text;
+      voiceInterimLenRef.current = appended.length;
+      return base + appended;
+    });
+    autoResizeTextarea();
+  }, [setInput, autoResizeTextarea]);
+
+  const handleVoiceCommandSend = useCallback(() => {
+    // Clear any trailing interim before sending
+    if (voiceInterimLenRef.current > 0) {
+      setInput((prev) => {
+        const base = stripInterim(prev).trimEnd();
+        voiceInterimLenRef.current = 0;
+        return base;
+      });
+    }
+    setTimeout(() => {
+      handleSubmit({ preventDefault: () => undefined } as React.FormEvent<HTMLFormElement>);
+    }, 150);
+  }, [handleSubmit, setInput]);
+
+  const {
+    isRecording: isVoiceRecording,
+    isSupported: isVoiceSupported,
+    error: voiceError,
+    toggleRecording: toggleVoiceRecording,
+  } = useVoiceInput({
+    onFinalText: handleVoiceFinalText,
+    onInterimText: handleVoiceInterimText,
+    onVoiceCommandSend: handleVoiceCommandSend,
   });
 
   // On WebSocket reconnect, re-fetch the current session's messages from the server
@@ -409,6 +486,11 @@ function ChatInterface({
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
           onTranscript={handleTranscript}
+          isVoiceRecording={isVoiceRecording}
+          isVoiceSupported={isVoiceSupported}
+          isVoiceEnabled={voiceSettings.enabled}
+          voiceError={voiceError}
+          onToggleVoiceRecording={toggleVoiceRecording}
         />
       </div>
 

@@ -1,3 +1,4 @@
+import React from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ProviderLoginModal from '../../provider-auth/view/ProviderLoginModal';
@@ -13,8 +14,11 @@ import NotificationsSettingsTab from '../view/tabs/NotificationsSettingsTab';
 import TasksSettingsTab from '../view/tabs/tasks-settings/TasksSettingsTab';
 import PluginSettingsTab from '../../plugins/view/PluginSettingsTab';
 import ArchivedProjectsTab from '../view/tabs/ArchivedProjectsTab';
+import VoiceSettingsTab from '../view/tabs/VoiceSettingsTab';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
+import { loadVoiceSettings, saveVoiceSettings } from '../../../hooks/useVoiceInput';
+import type { VoiceSettings } from '../../../hooks/useVoiceInput';
 import type { SettingsProps } from '../types/types';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
@@ -82,6 +86,13 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     subscribe: pushSubscribe,
     unsubscribe: pushUnsubscribe,
   } = useWebPush();
+
+  const [voiceSettings, setVoiceSettings] = React.useState<VoiceSettings>(loadVoiceSettings);
+
+  const handleVoiceSettingsChange = React.useCallback((settings: VoiceSettings) => {
+    setVoiceSettings(settings);
+    saveVoiceSettings(settings);
+  }, []);
 
   const handleEnablePush = async () => {
     await pushSubscribe();
@@ -151,6 +162,13 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onCodeEditorShowMinimapChange={(value) => updateCodeEditorSetting('showMinimap', value)}
                   onCodeEditorLineNumbersChange={(value) => updateCodeEditorSetting('lineNumbers', value)}
                   onCodeEditorFontSizeChange={(value) => updateCodeEditorSetting('fontSize', value)}
+                />
+              )}
+
+              {activeTab === 'voice' && (
+                <VoiceSettingsTab
+                  voiceSettings={voiceSettings}
+                  onVoiceSettingsChange={handleVoiceSettingsChange}
                 />
               )}
 
