@@ -767,6 +767,16 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
         lastUpdated: now,
       }));
 
+      // Save a unified default permission mode for the chat UI
+      const globalDefault =
+        claudePermissions.skipPermissions ? 'bypassPermissions'
+        : codexPermissionMode !== 'default' ? codexPermissionMode
+        : cursorPermissions.skipPermissions ? 'bypassPermissions'
+        : geminiPermissionMode !== 'default' ? geminiPermissionMode
+        : 'default';
+      localStorage.setItem('default-permission-mode', globalDefault);
+      console.log('[PermMode] Settings saved: skipPermissions =', claudePermissions.skipPermissions, '| codexMode =', codexPermissionMode, '| globalDefault =', globalDefault);
+
       const notificationResponse = await authenticatedFetch('/api/settings/notification-preferences', {
         method: 'PUT',
         body: JSON.stringify(notificationPreferences),

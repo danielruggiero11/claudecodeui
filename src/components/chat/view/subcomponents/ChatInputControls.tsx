@@ -37,6 +37,8 @@ export default function ChatInputControls({
 }: ChatInputControlsProps) {
   const { t } = useTranslation('chat');
 
+  console.log('[PermMode] ChatInputControls render: permissionMode =', permissionMode);
+
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
       <button

@@ -18,11 +18,67 @@ import pystray
 from pystray import MenuItem as item
 from PIL import Image
 
+if sys.platform == "win32":
+    import ctypes
+
+MUTEX_NAME = "Global\\ClaudeCodeUI_TrayApp"
+
+
+def _acquire_single_instance_mutex():
+    """Create a named mutex so only one instance runs at a time (Windows only)."""
+    if sys.platform != "win32":
+        return None
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, True, MUTEX_NAME)
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        print("[ClaudeCodeUI] Another instance is already running. Exiting.")
+        sys.exit(0)
+    return mutex
+
 
 # Resolve project root (two levels up from scripts/tray/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ICON_PATH = PROJECT_ROOT / "public" / "claude.png"
-PORT = int(os.environ.get("CLAUDEUI_PORT", "3001"))
+
+
+def _read_env_port():
+    """Read SERVER_PORT from .env file, falling back to CLAUDEUI_PORT env var or 3001."""
+    env_file = PROJECT_ROOT / ".env"
+    try:
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and line.startswith("SERVER_PORT="):
+                return int(line.split("=", 1)[1].strip())
+    except Exception:
+        pass
+    return int(os.environ.get("CLAUDEUI_PORT", "3001"))
+
+
+PORT = _read_env_port()
+
+
+def _kill_process_on_port(port):
+    """Kill any process currently listening on the given port (Windows only)."""
+    if sys.platform != "win32":
+        return
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, text=True, shell=True,
+        )
+        for line in result.stdout.splitlines():
+            # Match lines like  TCP  0.0.0.0:12488  0.0.0.0:0  LISTENING  1234
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.split()
+                pid = parts[-1]
+                if pid.isdigit() and int(pid) != os.getpid():
+                    print(f"[ClaudeCodeUI] Killing stale process on port {port} (PID {pid})")
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", pid],
+                        capture_output=True, shell=True,
+                    )
+                    time.sleep(1)
+    except Exception as e:
+        print(f"[ClaudeCodeUI] Port cleanup warning: {e}")
 
 
 class ClaudeCodeUITray:
@@ -34,6 +90,8 @@ class ClaudeCodeUITray:
 
     def start_server(self):
         """Start the Node.js production server."""
+        _kill_process_on_port(PORT)
+
         node_exe = "node"
         server_script = str(PROJECT_ROOT / "server" / "index.js")
 
@@ -41,21 +99,24 @@ class ClaudeCodeUITray:
         env["SERVER_PORT"] = str(PORT)
         env["NODE_ENV"] = "production"
 
-        # Check if dist/ exists; if not, run build first
-        dist_index = PROJECT_ROOT / "dist" / "index.html"
-        if not dist_index.exists():
-            print("[ClaudeCodeUI] dist/ not found, running build...")
-            build_result = subprocess.run(
-                ["npm", "run", "build"],
-                cwd=str(PROJECT_ROOT),
-                env=env,
-                shell=True,
-                capture_output=True,
-                text=True,
-            )
-            if build_result.returncode != 0:
-                print(f"[ClaudeCodeUI] Build failed: {build_result.stderr}")
+        # Always rebuild to ensure dist/ matches latest source
+        print("[ClaudeCodeUI] Building frontend...")
+        build_result = subprocess.run(
+            ["npm", "run", "build"],
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+        if build_result.returncode != 0:
+            print(f"[ClaudeCodeUI] Build failed: {build_result.stderr}")
+            # Fall back to existing dist/ if available
+            dist_index = PROJECT_ROOT / "dist" / "index.html"
+            if not dist_index.exists():
                 sys.exit(1)
+            print("[ClaudeCodeUI] Using existing dist/ as fallback.")
+        else:
             print("[ClaudeCodeUI] Build complete.")
 
         print(f"[ClaudeCodeUI] Starting server on port {PORT}...")
@@ -132,6 +193,7 @@ class ClaudeCodeUITray:
 
 
 def main():
+    _acquire_single_instance_mutex()
     try:
         tray = ClaudeCodeUITray()
         tray.run()

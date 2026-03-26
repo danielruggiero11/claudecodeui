@@ -8,8 +8,18 @@ interface UseChatProviderStateArgs {
   selectedSession: ProjectSession | null;
 }
 
+function getGlobalDefaultPermissionMode(): PermissionMode {
+  const stored = localStorage.getItem('default-permission-mode');
+  console.log('[PermMode] getGlobalDefault: stored =', stored);
+  return (stored as PermissionMode) || 'default';
+}
+
 export function useChatProviderState({ selectedSession }: UseChatProviderStateArgs) {
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => {
+    const mode = getGlobalDefaultPermissionMode();
+    console.log('[PermMode] useState init:', mode);
+    return mode;
+  });
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
   const [provider, setProvider] = useState<SessionProvider>(() => {
     return (localStorage.getItem('selected-provider') as SessionProvider) || 'claude';
@@ -31,11 +41,18 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
 
   useEffect(() => {
     if (!selectedSession?.id) {
+      // New/blank session — reset to global default
+      const globalDefault = getGlobalDefaultPermissionMode();
+      console.log('[PermMode] useEffect: no session, resetting to globalDefault =', globalDefault);
+      setPermissionMode(globalDefault);
       return;
     }
 
     const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`);
-    setPermissionMode((savedMode as PermissionMode) || 'default');
+    const globalDefault = getGlobalDefaultPermissionMode();
+    const finalMode = (savedMode as PermissionMode) || globalDefault;
+    console.log('[PermMode] useEffect: sessionId =', selectedSession.id, '| savedMode =', savedMode, '| globalDefault =', globalDefault, '| finalMode =', finalMode);
+    setPermissionMode(finalMode);
   }, [selectedSession?.id]);
 
   useEffect(() => {
