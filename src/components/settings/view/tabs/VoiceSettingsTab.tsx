@@ -129,6 +129,21 @@ export default function VoiceSettingsTab({
         </SettingsCard>
       </SettingsSection>
 
+      <SettingsSection title="Advanced">
+        <SettingsCard>
+          <SettingsRow
+            label="Show Debug Log"
+            description="Display speech recognition events for troubleshooting"
+          >
+            <SettingsToggle
+              checked={voiceSettings.showDebug}
+              onChange={(value) => update({ showDebug: value })}
+              ariaLabel="Show debug log"
+            />
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsSection>
+
       <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-sm text-muted-foreground">
         <p className="font-medium text-foreground">How it works</p>
         <ul className="mt-2 list-inside list-disc space-y-1">

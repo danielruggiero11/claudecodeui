@@ -273,6 +273,7 @@ function ChatInterface({
     isRecording: isVoiceRecording,
     isSupported: isVoiceSupported,
     error: voiceError,
+    debugLog: voiceDebugLog,
     toggleRecording: toggleVoiceRecording,
   } = useVoiceInput({
     onFinalText: handleVoiceFinalText,
@@ -490,6 +491,8 @@ function ChatInterface({
           isVoiceSupported={isVoiceSupported}
           isVoiceEnabled={voiceSettings.enabled}
           voiceError={voiceError}
+          voiceDebugLog={voiceDebugLog}
+          voiceShowDebug={voiceSettings.showDebug}
           onToggleVoiceRecording={toggleVoiceRecording}
         />
       </div>

@@ -710,8 +710,10 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Directory not accessible' });
         }
 
-        // Use existing getFileTree function with shallow depth (only direct children)
-        const fileTree = await getFileTree(resolvedPath, 1, 0, false); // maxDepth=1, showHidden=false
+        // Use existing getFileTree function with no recursion (only immediate children)
+        // maxDepth=0 prevents recursing into subdirectories, which caused timeouts
+        // on mobile when stat-ing hundreds of entries (especially OneDrive cloud files)
+        const fileTree = await getFileTree(resolvedPath, 0, 0, false);
 
         // Filter only directories and format for suggestions
         const directories = fileTree
@@ -2481,15 +2483,21 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
                 entry.name === '.hg') continue;
 
             const itemPath = path.join(dirPath, entry.name);
+            // Use stat (follows symlinks) to determine type, since
+            // entry.isDirectory() returns false for symlinks/reparse points
+            // like OneDrive on Windows
+            let isDir = entry.isDirectory();
             const item = {
                 name: entry.name,
                 path: itemPath,
-                type: entry.isDirectory() ? 'directory' : 'file'
+                type: 'file' // updated below after stat
             };
 
             // Get file stats for additional metadata
             try {
                 const stats = await fsPromises.stat(itemPath);
+                isDir = stats.isDirectory();
+                item.type = isDir ? 'directory' : 'file';
                 item.size = stats.size;
                 item.modified = stats.mtime.toISOString();
 
@@ -2501,14 +2509,15 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
                 item.permissions = ((mode >> 6) & 7).toString() + ((mode >> 3) & 7).toString() + (mode & 7).toString();
                 item.permissionsRwx = permToRwx(ownerPerm) + permToRwx(groupPerm) + permToRwx(otherPerm);
             } catch (statError) {
-                // If stat fails, provide default values
+                // If stat fails, fall back to entry type detection
+                item.type = isDir ? 'directory' : 'file';
                 item.size = 0;
                 item.modified = null;
                 item.permissions = '000';
                 item.permissionsRwx = '---------';
             }
 
-            if (entry.isDirectory() && currentDepth < maxDepth) {
+            if (isDir && currentDepth < maxDepth) {
                 // Recursively get subdirectories but limit depth
                 try {
                     // Check if we can access the directory before trying to read it

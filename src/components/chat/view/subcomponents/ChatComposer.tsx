@@ -1,4 +1,6 @@
+import { useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { VoiceDebugEntry } from '../../../../hooks/useVoiceInput';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -95,6 +97,8 @@ interface ChatComposerProps {
   isVoiceSupported: boolean;
   isVoiceEnabled: boolean;
   voiceError: string | null;
+  voiceDebugLog: VoiceDebugEntry[];
+  voiceShowDebug: boolean;
   onToggleVoiceRecording: () => void;
 }
 
@@ -157,9 +161,18 @@ export default function ChatComposer({
   isVoiceSupported,
   isVoiceEnabled,
   voiceError,
+  voiceDebugLog,
+  voiceShowDebug,
   onToggleVoiceRecording,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
+  const debugScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (debugScrollRef.current) {
+      debugScrollRef.current.scrollTop = debugScrollRef.current.scrollHeight;
+    }
+  }, [voiceDebugLog]);
   const textareaRect = textareaRef.current?.getBoundingClientRect();
   const commandMenuPosition = {
     top: textareaRect ? Math.max(16, textareaRect.top - 316) : 0,
@@ -213,6 +226,50 @@ export default function ChatComposer({
           onScrollToBottom={onScrollToBottom}
         />}
       </div>
+
+      {voiceShowDebug && voiceDebugLog.length > 0 && (
+        <div className="mx-auto mb-2 max-w-4xl">
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-950/20 p-2">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-mono text-[10px] font-bold text-yellow-400">Voice Debug</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const text = voiceDebugLog
+                    .map((e) => `${new Date(e.ts).toISOString().slice(11, 23)} [${e.type}] ${e.detail}`)
+                    .join('\n');
+                  navigator.clipboard.writeText(text).then(() => {
+                    alert('Debug log copied!');
+                  });
+                }}
+                className="rounded bg-yellow-600/40 px-2 py-0.5 font-mono text-[10px] text-yellow-200 active:bg-yellow-600/60"
+              >
+                Copy Log
+              </button>
+            </div>
+            <div
+              ref={debugScrollRef}
+              className="max-h-48 overflow-y-auto font-mono text-[10px] leading-tight text-yellow-200/80"
+            >
+              {voiceDebugLog.map((entry, i) => (
+                <div key={i} className="border-b border-yellow-500/10 py-0.5">
+                  <span className="text-yellow-500/60">{new Date(entry.ts).toISOString().slice(11, 23)}</span>
+                  {' '}
+                  <span className={
+                    entry.type === 'onresult' ? 'text-cyan-300' :
+                    entry.type === 'final' ? 'text-green-300' :
+                    entry.type === 'emit-interim' ? 'text-orange-300' :
+                    entry.type === 'parsed' ? 'text-blue-300' :
+                    'text-yellow-200'
+                  }>[{entry.type}]</span>
+                  {' '}
+                  {entry.detail}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {!hasQuestionPanel && <form onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void} className="relative mx-auto max-w-4xl">
         {isDragActive && (
@@ -285,91 +342,98 @@ export default function ChatComposer({
         />
 
         <div
-          {...getRootProps()}
-          className={`relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 shadow-sm backdrop-blur-sm transition-all duration-200 focus-within:border-primary/30 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/15 ${
-            isTextareaExpanded ? 'chat-input-expanded' : ''
-          }`}
-        >
-          <input {...getInputProps()} />
-          <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
-            <div className="chat-input-placeholder block w-full whitespace-pre-wrap break-words py-1.5 pl-12 pr-20 text-base leading-6 text-transparent sm:py-4 sm:pr-40">
-              {renderInputWithMentions(input)}
+            {...getRootProps()}
+            className={`relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 shadow-sm backdrop-blur-sm transition-colors duration-200 focus-within:border-primary/30 ${
+              isTextareaExpanded ? 'chat-input-expanded' : ''
+            }`}
+          >
+            <input {...getInputProps()} />
+            <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+              <div className="chat-input-placeholder block w-full whitespace-pre-wrap break-words py-1.5 pl-12 pr-20 text-base leading-6 text-transparent sm:py-4 sm:pr-40">
+                {renderInputWithMentions(input)}
+              </div>
             </div>
-          </div>
 
-          <div className="relative z-10">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={onInputChange}
-              onClick={onTextareaClick}
-              onKeyDown={onTextareaKeyDown}
-              onPaste={onTextareaPaste}
-              onScroll={(event) => onTextareaScrollSync(event.target as HTMLTextAreaElement)}
-              onFocus={() => onInputFocusChange?.(true)}
-              onBlur={() => onInputFocusChange?.(false)}
-              onInput={onTextareaInput}
-              placeholder={placeholder}
-              className="chat-input-placeholder block max-h-[40vh] min-h-[50px] w-full resize-none overflow-y-auto rounded-2xl bg-transparent py-1.5 pl-12 pr-20 text-base leading-6 text-foreground placeholder-muted-foreground/50 transition-all duration-200 focus:outline-none sm:max-h-[300px] sm:min-h-[80px] sm:py-4 sm:pr-40"
-              style={{ height: '50px' }}
-            />
+            <div className="relative z-10">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={onInputChange}
+                onClick={onTextareaClick}
+                onKeyDown={onTextareaKeyDown}
+                onPaste={onTextareaPaste}
+                onScroll={(event) => onTextareaScrollSync(event.target as HTMLTextAreaElement)}
+                onFocus={() => onInputFocusChange?.(true)}
+                onBlur={() => onInputFocusChange?.(false)}
+                onInput={onTextareaInput}
+                placeholder={placeholder}
+                className="chat-input-placeholder block max-h-[40vh] min-h-[50px] w-full resize-none overflow-y-auto rounded-2xl bg-transparent py-1.5 pl-12 pr-20 text-base leading-6 text-foreground placeholder-muted-foreground/50 focus:outline-none sm:max-h-[300px] sm:min-h-[80px] sm:py-4 sm:pr-40"
+                style={{ height: '50px' }}
+              />
 
-            <button
-              type="button"
-              onClick={openImagePicker}
-              className="absolute left-2 top-1/2 -translate-y-1/2 transform rounded-xl p-2 transition-colors hover:bg-accent/60"
-              title={t('input.attachImages')}
-            >
-              <svg className="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-            </button>
-
-            {isVoiceEnabled && isVoiceSupported && (
               <button
                 type="button"
-                onClick={(e) => {
+                onClick={openImagePicker}
+                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-xl p-2 transition-colors hover:bg-accent/60"
+                title={t('input.attachImages')}
+              >
+                <svg className="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+              </button>
+
+            {isVoiceEnabled && isVoiceSupported && !isVoiceRecording && (
+              <button
+                key="mic-off"
+                type="button"
+                onTouchStart={(e) => e.stopPropagation()}
+                onPointerUp={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   onToggleVoiceRecording();
                 }}
-                className={`absolute right-14 top-1/2 flex h-8 w-8 -translate-y-1/2 transform items-center justify-center rounded-lg transition-all duration-200 sm:right-16 sm:h-9 sm:w-9 ${
-                  isVoiceRecording
-                    ? 'bg-red-500 text-white shadow-md shadow-red-500/30'
-                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-                }`}
-                title={isVoiceRecording ? 'Stop listening' : 'Start voice input'}
+                style={{ top: 0, bottom: 0, margin: 'auto 0' }}
+                className="absolute right-14 z-20 flex h-8 w-8 touch-manipulation items-center justify-center rounded-lg text-muted-foreground outline-none sm:right-16 sm:h-9 sm:w-9"
+                aria-label="Start voice input"
               >
-                <svg
-                  className={`h-4 w-4 sm:h-[18px] sm:w-[18px] ${isVoiceRecording ? 'animate-pulse' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M19 10v2a7 7 0 0 1-14 0v-2"
-                  />
+                <svg className="h-4 w-4 sm:h-[18px] sm:w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" />
+                  <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+            {isVoiceEnabled && isVoiceSupported && isVoiceRecording && (
+              <button
+                key="mic-on"
+                type="button"
+                onTouchStart={(e) => e.stopPropagation()}
+                onPointerUp={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleVoiceRecording();
+                }}
+                style={{ top: 0, bottom: 0, margin: 'auto 0', backgroundColor: '#ef4444', color: '#fff' }}
+                className="absolute right-14 z-20 flex h-8 w-8 touch-manipulation items-center justify-center rounded-lg outline-none sm:right-16 sm:h-9 sm:w-9"
+                aria-label="Stop listening"
+              >
+                <svg className="h-4 w-4 sm:h-[18px] sm:w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" />
                   <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
             )}
 
-            <button
-              type="submit"
+              <button
+                type="submit"
               disabled={!input.trim() || isLoading}
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -379,9 +443,9 @@ export default function ChatComposer({
                 event.preventDefault();
                 onSubmit(event);
               }}
-              className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 transform items-center justify-center rounded-xl bg-primary transition-all duration-200 hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-1 focus:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground sm:h-11 sm:w-11"
+              className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-primary hover:bg-primary/90 focus:outline-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground sm:h-11 sm:w-11"
             >
-              <svg className="h-4 w-4 rotate-90 transform text-primary-foreground sm:h-[18px] sm:w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-4 w-4 rotate-90 text-primary-foreground sm:h-[18px] sm:w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             </button>
