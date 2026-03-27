@@ -148,6 +148,24 @@ const runMigrations = () => {
     )`);
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_names_lookup ON session_names(session_id, provider)');
 
+    // Create user_settings table for server-persisted user preferences
+    db.exec(`CREATE TABLE IF NOT EXISTS user_settings (
+      user_id INTEGER PRIMARY KEY,
+      settings_json TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+
+    // Create session_permission_overrides table for per-session permission modes
+    db.exec(`CREATE TABLE IF NOT EXISTS session_permission_overrides (
+      user_id INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      permission_mode TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, session_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+
     console.log('Database migrations completed successfully');
   } catch (error) {
     console.error('Error running migrations:', error.message);
@@ -474,6 +492,145 @@ const notificationPreferencesDb = {
   }
 };
 
+// ── User Settings (server-persisted preferences) ──────────────────────
+
+const DEFAULT_USER_SETTINGS = {
+  claude: { allowedTools: [], disallowedTools: [], skipPermissions: false },
+  cursor: { allowedCommands: [], disallowedCommands: [], skipPermissions: false },
+  codex: { permissionMode: 'default' },
+  gemini: { permissionMode: 'default' },
+  defaultPermissionMode: 'default',
+  uiPreferences: {
+    autoExpandTools: false,
+    showRawParameters: false,
+    showThinking: true,
+    autoScrollToBottom: true,
+    sendByCtrlEnter: false,
+    sidebarVisible: true,
+  },
+  codeEditor: {
+    theme: 'dark',
+    wordWrap: false,
+    showMinimap: true,
+    lineNumbers: true,
+    fontSize: '14',
+  },
+  models: { claude: '', cursor: '', codex: '', gemini: '' },
+  selectedProvider: 'claude',
+  projectSortOrder: 'name',
+  theme: 'dark',
+  userLanguage: 'en',
+  voiceSettings: {},
+  starredProjects: [],
+  _version: 1,
+};
+
+const normalizeUserSettings = (value) => {
+  const src = value && typeof value === 'object' ? value : {};
+
+  const mergeObj = (defaults, source) => {
+    if (!source || typeof source !== 'object') return { ...defaults };
+    const result = { ...defaults };
+    for (const key of Object.keys(defaults)) {
+      if (key in source) {
+        if (typeof defaults[key] === 'object' && defaults[key] !== null && !Array.isArray(defaults[key])) {
+          result[key] = mergeObj(defaults[key], source[key]);
+        } else {
+          result[key] = source[key];
+        }
+      }
+    }
+    return result;
+  };
+
+  const normalized = mergeObj(DEFAULT_USER_SETTINGS, src);
+
+  // Preserve extra top-level keys like _migratedAt
+  if (src._migratedAt) normalized._migratedAt = src._migratedAt;
+
+  return normalized;
+};
+
+const userSettingsDb = {
+  getSettings: (userId) => {
+    try {
+      const row = db.prepare('SELECT settings_json FROM user_settings WHERE user_id = ?').get(userId);
+      if (!row) {
+        const defaults = normalizeUserSettings(DEFAULT_USER_SETTINGS);
+        db.prepare(
+          'INSERT INTO user_settings (user_id, settings_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'
+        ).run(userId, JSON.stringify(defaults));
+        return defaults;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(row.settings_json);
+      } catch {
+        parsed = DEFAULT_USER_SETTINGS;
+      }
+      return normalizeUserSettings(parsed);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  updateSettings: (userId, settings) => {
+    try {
+      const normalized = normalizeUserSettings(settings);
+      db.prepare(
+        `INSERT INTO user_settings (user_id, settings_json, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET
+           settings_json = excluded.settings_json,
+           updated_at = CURRENT_TIMESTAMP`
+      ).run(userId, JSON.stringify(normalized));
+      return normalized;
+    } catch (err) {
+      throw err;
+    }
+  },
+};
+
+// ── Session Permission Overrides ──────────────────────────────────────
+
+const sessionPermissionDb = {
+  getPermission: (userId, sessionId) => {
+    try {
+      const row = db.prepare(
+        'SELECT permission_mode FROM session_permission_overrides WHERE user_id = ? AND session_id = ?'
+      ).get(userId, sessionId);
+      return row ? row.permission_mode : null;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  setPermission: (userId, sessionId, permissionMode) => {
+    try {
+      db.prepare(
+        `INSERT INTO session_permission_overrides (user_id, session_id, permission_mode, updated_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id, session_id) DO UPDATE SET
+           permission_mode = excluded.permission_mode,
+           updated_at = CURRENT_TIMESTAMP`
+      ).run(userId, sessionId, permissionMode);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  deletePermission: (userId, sessionId) => {
+    try {
+      db.prepare(
+        'DELETE FROM session_permission_overrides WHERE user_id = ? AND session_id = ?'
+      ).run(userId, sessionId);
+    } catch (err) {
+      throw err;
+    }
+  },
+};
+
 const pushSubscriptionsDb = {
   saveSubscription: (userId, endpoint, keysP256dh, keysAuth) => {
     try {
@@ -622,6 +779,8 @@ export {
   apiKeysDb,
   credentialsDb,
   notificationPreferencesDb,
+  userSettingsDb,
+  sessionPermissionDb,
   pushSubscriptionsDb,
   sessionNamesDb,
   applyCustomSessionNames,

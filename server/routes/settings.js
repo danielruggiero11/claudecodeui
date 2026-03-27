@@ -1,5 +1,5 @@
 import express from 'express';
-import { apiKeysDb, credentialsDb, notificationPreferencesDb, pushSubscriptionsDb } from '../database/db.js';
+import { apiKeysDb, credentialsDb, notificationPreferencesDb, userSettingsDb, sessionPermissionDb, pushSubscriptionsDb } from '../database/db.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
 
@@ -270,6 +270,58 @@ router.post('/push/unsubscribe', async (req, res) => {
   } catch (error) {
     console.error('Error removing push subscription:', error);
     res.status(500).json({ error: 'Failed to remove push subscription' });
+  }
+});
+
+// ===============================
+// User Preferences (server-persisted settings)
+// ===============================
+
+router.get('/user-preferences', async (req, res) => {
+  try {
+    const settings = userSettingsDb.getSettings(req.user.id);
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('Error fetching user preferences:', error);
+    res.status(500).json({ error: 'Failed to fetch user preferences' });
+  }
+});
+
+router.put('/user-preferences', async (req, res) => {
+  try {
+    const settings = userSettingsDb.updateSettings(req.user.id, req.body || {});
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('Error saving user preferences:', error);
+    res.status(500).json({ error: 'Failed to save user preferences' });
+  }
+});
+
+// ===============================
+// Session Permission Overrides
+// ===============================
+
+router.get('/session-permission/:sessionId', async (req, res) => {
+  try {
+    const permissionMode = sessionPermissionDb.getPermission(req.user.id, req.params.sessionId);
+    res.json({ success: true, permissionMode });
+  } catch (error) {
+    console.error('Error fetching session permission:', error);
+    res.status(500).json({ error: 'Failed to fetch session permission' });
+  }
+});
+
+router.put('/session-permission/:sessionId', async (req, res) => {
+  try {
+    const { permissionMode } = req.body;
+    if (!permissionMode || typeof permissionMode !== 'string') {
+      return res.status(400).json({ error: 'permissionMode is required' });
+    }
+    sessionPermissionDb.setPermission(req.user.id, req.params.sessionId, permissionMode);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving session permission:', error);
+    res.status(500).json({ error: 'Failed to save session permission' });
   }
 });
 

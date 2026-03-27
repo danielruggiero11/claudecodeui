@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authenticatedFetch } from '../../../utils/api';
+import { saveSessionPermission, fetchSessionPermission, updateSettingsPartial } from '../../../utils/settingsSync';
 import { CLAUDE_MODELS, CODEX_MODELS, CURSOR_MODELS, GEMINI_MODELS } from '../../../../shared/modelConstants';
 import type { PendingPermissionRequest, PermissionMode } from '../types/types';
 import type { ProjectSession, SessionProvider } from '../../../types/app';
@@ -53,6 +54,16 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     const finalMode = (savedMode as PermissionMode) || globalDefault;
     console.log('[PermMode] useEffect: sessionId =', selectedSession.id, '| savedMode =', savedMode, '| globalDefault =', globalDefault, '| finalMode =', finalMode);
     setPermissionMode(finalMode);
+
+    // Also check server for the authoritative value (async, updates if different)
+    const sid = selectedSession.id;
+    fetchSessionPermission(sid).then((serverMode) => {
+      if (serverMode && serverMode !== finalMode) {
+        console.log('[PermMode] Server override:', serverMode, '(was', finalMode, ')');
+        setPermissionMode(serverMode as PermissionMode);
+        localStorage.setItem(`permissionMode-${sid}`, serverMode);
+      }
+    }).catch(() => {});
   }, [selectedSession?.id]);
 
   useEffect(() => {
@@ -62,6 +73,7 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
 
     setProvider(selectedSession.__provider);
     localStorage.setItem('selected-provider', selectedSession.__provider);
+    updateSettingsPartial({ selectedProvider: selectedSession.__provider }).catch(() => {});
   }, [provider, selectedSession]);
 
   useEffect(() => {
@@ -113,6 +125,8 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
 
     if (selectedSession?.id) {
       localStorage.setItem(`permissionMode-${selectedSession.id}`, nextMode);
+      // Persist to server
+      saveSessionPermission(selectedSession.id, nextMode).catch(() => {});
     }
   }, [permissionMode, provider, selectedSession?.id]);
 

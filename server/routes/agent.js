@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import { promises as fs } from 'fs';
 import crypto from 'crypto';
-import { userDb, apiKeysDb, githubTokensDb } from '../database/db.js';
+import { userDb, apiKeysDb, githubTokensDb, userSettingsDb } from '../database/db.js';
 import { addProjectManually } from '../projects.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
@@ -942,6 +942,9 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       });
     }
 
+    // Read user's saved permission settings (fall back to bypass for backward compat)
+    const savedSettings = userSettingsDb.getSettings(req.user.id);
+
     // Start the appropriate session
     if (provider === 'claude') {
       console.log('🤖 Starting Claude SDK session');
@@ -951,7 +954,9 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: null, // New session
         model: model,
-        permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
+        permissionMode: savedSettings.claude.skipPermissions
+          ? 'bypassPermissions'
+          : (savedSettings.defaultPermissionMode || 'bypassPermissions'),
       }, writer);
 
     } else if (provider === 'cursor') {
@@ -962,7 +967,7 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: null, // New session
         model: model || undefined,
-        skipPermissions: true // Bypass permissions for Cursor
+        skipPermissions: savedSettings.cursor.skipPermissions ?? true,
       }, writer);
     } else if (provider === 'codex') {
       console.log('🤖 Starting Codex SDK session');
@@ -972,7 +977,7 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: null,
         model: model || CODEX_MODELS.DEFAULT,
-        permissionMode: 'bypassPermissions'
+        permissionMode: savedSettings.codex.permissionMode || 'bypassPermissions',
       }, writer);
     } else if (provider === 'gemini') {
       console.log('✨ Starting Gemini CLI session');
@@ -982,7 +987,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: null,
         model: model,
-        skipPermissions: true // CLI mode bypasses permissions
+        skipPermissions: savedSettings.gemini.permissionMode === 'yolo' ||
+          savedSettings.gemini.permissionMode === 'auto_edit',
       }, writer);
     }
 

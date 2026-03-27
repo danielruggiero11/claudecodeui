@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { Project } from '../../../types/app';
+import { updateSettingsPartial } from '../../../utils/settingsSync';
 import type {
   AdditionalSessionsByProject,
   ProjectSortOrder,
@@ -33,7 +34,9 @@ export const loadStarredProjects = (): Set<string> => {
 
 export const persistStarredProjects = (starredProjects: Set<string>) => {
   try {
-    localStorage.setItem('starredProjects', JSON.stringify([...starredProjects]));
+    const arr = [...starredProjects];
+    localStorage.setItem('starredProjects', JSON.stringify(arr));
+    updateSettingsPartial({ starredProjects: arr }).catch(() => {});
   } catch {
     // Keep UI responsive even if storage fails.
   }

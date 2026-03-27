@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { updateSettingsPartial } from '../utils/settingsSync';
 
 export type VoiceSendMode = 'manual' | 'voiceCommand' | 'autoPause';
 
@@ -36,6 +37,7 @@ export function loadVoiceSettings(): VoiceSettings {
 
 export function saveVoiceSettings(settings: VoiceSettings): void {
   localStorage.setItem('voice-settings', JSON.stringify(settings));
+  updateSettingsPartial({ voiceSettings: settings as unknown as Record<string, unknown> }).catch(() => {});
 }
 
 interface SpeechRecognitionEvent extends Event {

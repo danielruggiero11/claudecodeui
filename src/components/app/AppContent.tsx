@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Sidebar from '../sidebar/view/Sidebar';
@@ -8,6 +8,7 @@ import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import MobileNav from './MobileNav';
+import { migrateIfNeeded } from '../../utils/settingsSync';
 
 export default function AppContent() {
   const navigate = useNavigate();
@@ -105,6 +106,15 @@ export default function AppContent() {
       navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
     };
   }, [navigate, refreshProjectsSilently, setActiveTab, setSidebarOpen]);
+
+  // Server-side settings sync: migrate localStorage data to server on first load
+  const [settingsSynced, setSettingsSynced] = useState(false);
+  useEffect(() => {
+    if (settingsSynced) return;
+    migrateIfNeeded()
+      .then(() => setSettingsSynced(true))
+      .catch((err) => console.warn('[SettingsSync] Migration failed, using localStorage fallback:', err));
+  }, [settingsSynced]);
 
   // Permission recovery: query pending permissions on WebSocket reconnect or session change
   useEffect(() => {

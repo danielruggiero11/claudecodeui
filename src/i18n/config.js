@@ -11,6 +11,7 @@
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { updateSettingsPartial } from '../utils/settingsSync';
 // eslint-disable-next-line import-x/order
 import LanguageDetector from 'i18next-browser-languagedetector';
 
@@ -196,6 +197,7 @@ i18n
 i18n.on('languageChanged', (lng) => {
   try {
     localStorage.setItem('userLanguage', lng);
+    updateSettingsPartial({ userLanguage: lng }).catch(() => {});
   } catch (error) {
     console.error('Failed to save language preference:', error);
   }

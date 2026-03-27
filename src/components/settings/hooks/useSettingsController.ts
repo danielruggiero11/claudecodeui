@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { authenticatedFetch } from '../../../utils/api';
+import { fetchSettings, saveSettingsToServer, getCachedSettings } from '../../../utils/settingsSync';
+import type { PersistedSettings } from '../../../utils/settingsSync';
 import {
   AUTH_STATUS_ENDPOINTS,
   DEFAULT_AUTH_STATUS,
@@ -658,38 +660,66 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
 
   const loadSettings = useCallback(async () => {
     try {
-      const savedClaudeSettings = parseJson<ClaudeSettingsStorage>(
-        localStorage.getItem('claude-settings'),
-        {},
-      );
-      setClaudePermissions({
-        allowedTools: savedClaudeSettings.allowedTools || [],
-        disallowedTools: savedClaudeSettings.disallowedTools || [],
-        skipPermissions: Boolean(savedClaudeSettings.skipPermissions),
-      });
-      setProjectSortOrder(savedClaudeSettings.projectSortOrder === 'date' ? 'date' : 'name');
+      // Load from server (source of truth), with localStorage as instant fallback
+      let settings: PersistedSettings | null = null;
+      try {
+        settings = await fetchSettings();
+      } catch {
+        // Server unavailable — fall back to cache
+        settings = getCachedSettings();
+      }
 
-      const savedCursorSettings = parseJson<CursorSettingsStorage>(
-        localStorage.getItem('cursor-tools-settings'),
-        {},
-      );
-      setCursorPermissions({
-        allowedCommands: savedCursorSettings.allowedCommands || [],
-        disallowedCommands: savedCursorSettings.disallowedCommands || [],
-        skipPermissions: Boolean(savedCursorSettings.skipPermissions),
-      });
+      if (settings) {
+        setClaudePermissions({
+          allowedTools: settings.claude.allowedTools || [],
+          disallowedTools: settings.claude.disallowedTools || [],
+          skipPermissions: Boolean(settings.claude.skipPermissions),
+        });
+        setProjectSortOrder(settings.projectSortOrder === 'date' ? 'date' : 'name');
 
-      const savedCodexSettings = parseJson<CodexSettingsStorage>(
-        localStorage.getItem('codex-settings'),
-        {},
-      );
-      setCodexPermissionMode(toCodexPermissionMode(savedCodexSettings.permissionMode));
+        setCursorPermissions({
+          allowedCommands: settings.cursor.allowedCommands || [],
+          disallowedCommands: settings.cursor.disallowedCommands || [],
+          skipPermissions: Boolean(settings.cursor.skipPermissions),
+        });
 
-      const savedGeminiSettings = parseJson<{ permissionMode?: GeminiPermissionMode }>(
-        localStorage.getItem('gemini-settings'),
-        {},
-      );
-      setGeminiPermissionMode(savedGeminiSettings.permissionMode || 'default');
+        setCodexPermissionMode(toCodexPermissionMode(settings.codex.permissionMode));
+        setGeminiPermissionMode((settings.gemini.permissionMode as GeminiPermissionMode) || 'default');
+      } else {
+        // No server data and no cache — use empty defaults
+        const savedClaudeSettings = parseJson<ClaudeSettingsStorage>(
+          localStorage.getItem('claude-settings'),
+          {},
+        );
+        setClaudePermissions({
+          allowedTools: savedClaudeSettings.allowedTools || [],
+          disallowedTools: savedClaudeSettings.disallowedTools || [],
+          skipPermissions: Boolean(savedClaudeSettings.skipPermissions),
+        });
+        setProjectSortOrder(savedClaudeSettings.projectSortOrder === 'date' ? 'date' : 'name');
+
+        const savedCursorSettings = parseJson<CursorSettingsStorage>(
+          localStorage.getItem('cursor-tools-settings'),
+          {},
+        );
+        setCursorPermissions({
+          allowedCommands: savedCursorSettings.allowedCommands || [],
+          disallowedCommands: savedCursorSettings.disallowedCommands || [],
+          skipPermissions: Boolean(savedCursorSettings.skipPermissions),
+        });
+
+        const savedCodexSettings = parseJson<CodexSettingsStorage>(
+          localStorage.getItem('codex-settings'),
+          {},
+        );
+        setCodexPermissionMode(toCodexPermissionMode(savedCodexSettings.permissionMode));
+
+        const savedGeminiSettings = parseJson<{ permissionMode?: GeminiPermissionMode }>(
+          localStorage.getItem('gemini-settings'),
+          {},
+        );
+        setGeminiPermissionMode(savedGeminiSettings.permissionMode || 'default');
+      }
 
       try {
         const notificationResponse = await authenticatedFetch('/api/settings/notification-preferences');
@@ -741,42 +771,64 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     setSaveStatus(null);
 
     try {
-      const now = new Date().toISOString();
-      localStorage.setItem('claude-settings', JSON.stringify({
-        allowedTools: claudePermissions.allowedTools,
-        disallowedTools: claudePermissions.disallowedTools,
-        skipPermissions: claudePermissions.skipPermissions,
-        projectSortOrder,
-        lastUpdated: now,
-      }));
-
-      localStorage.setItem('cursor-tools-settings', JSON.stringify({
-        allowedCommands: cursorPermissions.allowedCommands,
-        disallowedCommands: cursorPermissions.disallowedCommands,
-        skipPermissions: cursorPermissions.skipPermissions,
-        lastUpdated: now,
-      }));
-
-      localStorage.setItem('codex-settings', JSON.stringify({
-        permissionMode: codexPermissionMode,
-        lastUpdated: now,
-      }));
-
-      localStorage.setItem('gemini-settings', JSON.stringify({
-        permissionMode: geminiPermissionMode,
-        lastUpdated: now,
-      }));
-
-      // Save a unified default permission mode for the chat UI
+      // Compute global default permission mode
       const globalDefault =
         claudePermissions.skipPermissions ? 'bypassPermissions'
         : codexPermissionMode !== 'default' ? codexPermissionMode
         : cursorPermissions.skipPermissions ? 'bypassPermissions'
         : geminiPermissionMode !== 'default' ? geminiPermissionMode
         : 'default';
-      localStorage.setItem('default-permission-mode', globalDefault);
+
+      // Build full settings object from current React state
+      const cached = getCachedSettings();
+      const fullSettings: PersistedSettings = {
+        claude: {
+          allowedTools: claudePermissions.allowedTools,
+          disallowedTools: claudePermissions.disallowedTools,
+          skipPermissions: claudePermissions.skipPermissions,
+        },
+        cursor: {
+          allowedCommands: cursorPermissions.allowedCommands,
+          disallowedCommands: cursorPermissions.disallowedCommands,
+          skipPermissions: cursorPermissions.skipPermissions,
+        },
+        codex: { permissionMode: codexPermissionMode },
+        gemini: { permissionMode: geminiPermissionMode },
+        defaultPermissionMode: globalDefault,
+        // Preserve non-settings-dialog fields from cache
+        uiPreferences: cached?.uiPreferences || {
+          autoExpandTools: false, showRawParameters: false, showThinking: true,
+          autoScrollToBottom: true, sendByCtrlEnter: false, sidebarVisible: true,
+        },
+        codeEditor: {
+          theme: codeEditorSettings.theme,
+          wordWrap: codeEditorSettings.wordWrap,
+          showMinimap: codeEditorSettings.showMinimap,
+          lineNumbers: codeEditorSettings.lineNumbers,
+          fontSize: codeEditorSettings.fontSize,
+        },
+        models: cached?.models || {
+          claude: localStorage.getItem('claude-model') || '',
+          cursor: localStorage.getItem('cursor-model') || '',
+          codex: localStorage.getItem('codex-model') || '',
+          gemini: localStorage.getItem('gemini-model') || '',
+        },
+        selectedProvider: cached?.selectedProvider || localStorage.getItem('selected-provider') || 'claude',
+        projectSortOrder,
+        theme: cached?.theme || localStorage.getItem('theme') || 'dark',
+        userLanguage: cached?.userLanguage || localStorage.getItem('userLanguage') || 'en',
+        voiceSettings: cached?.voiceSettings || {},
+        starredProjects: cached?.starredProjects || [],
+        _version: 1,
+        _migratedAt: cached?._migratedAt || new Date().toISOString(),
+      };
+
       console.log('[PermMode] Settings saved: skipPermissions =', claudePermissions.skipPermissions, '| codexMode =', codexPermissionMode, '| globalDefault =', globalDefault);
 
+      // Save to server (also updates localStorage cache + legacy keys)
+      await saveSettingsToServer(fullSettings);
+
+      // Save notification preferences separately (existing working endpoint)
       const notificationResponse = await authenticatedFetch('/api/settings/notification-preferences', {
         method: 'PUT',
         body: JSON.stringify(notificationPreferences),
@@ -794,6 +846,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     claudePermissions.allowedTools,
     claudePermissions.disallowedTools,
     claudePermissions.skipPermissions,
+    codeEditorSettings,
     codexPermissionMode,
     cursorPermissions.allowedCommands,
     cursorPermissions.disallowedCommands,
@@ -850,6 +903,18 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     localStorage.setItem('codeEditorLineNumbers', String(codeEditorSettings.lineNumbers));
     localStorage.setItem('codeEditorFontSize', codeEditorSettings.fontSize);
     window.dispatchEvent(new Event('codeEditorSettingsChanged'));
+    // Also update server cache with code editor settings
+    const cached = getCachedSettings();
+    if (cached) {
+      cached.codeEditor = {
+        theme: codeEditorSettings.theme,
+        wordWrap: codeEditorSettings.wordWrap,
+        showMinimap: codeEditorSettings.showMinimap,
+        lineNumbers: codeEditorSettings.lineNumbers,
+        fontSize: codeEditorSettings.fontSize,
+      };
+      localStorage.setItem('user-settings-cache', JSON.stringify(cached));
+    }
   }, [codeEditorSettings]);
 
   // Auto-save permissions and sort order with debounce

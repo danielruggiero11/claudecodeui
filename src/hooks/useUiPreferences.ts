@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef } from 'react';
+import { updateSettingsPartial } from '../utils/settingsSync';
 
 type UiPreferences = {
   autoExpandTools: boolean;
@@ -148,6 +149,7 @@ function reducer(state: UiPreferences, action: UiPreferencesAction): UiPreferenc
 
 export function useUiPreferences(storageKey = 'uiPreferences') {
   const instanceIdRef = useRef(`ui-preferences-${Math.random().toString(36).slice(2)}`);
+  const serverSyncTimerRef = useRef<number | null>(null);
   const [state, dispatch] = useReducer(
     reducer,
     storageKey,
@@ -170,6 +172,20 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
         },
       })
     );
+
+    // Debounced server sync (1s after last change)
+    if (serverSyncTimerRef.current !== null) {
+      window.clearTimeout(serverSyncTimerRef.current);
+    }
+    serverSyncTimerRef.current = window.setTimeout(() => {
+      updateSettingsPartial({ uiPreferences: state }).catch(() => {});
+    }, 1000);
+
+    return () => {
+      if (serverSyncTimerRef.current !== null) {
+        window.clearTimeout(serverSyncTimerRef.current);
+      }
+    };
   }, [state, storageKey]);
 
   useEffect(() => {

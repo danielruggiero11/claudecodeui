@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { updateSettingsPartial } from '../utils/settingsSync';
 
 const ThemeContext = createContext();
 
@@ -78,7 +79,11 @@ export const ThemeProvider = ({ children }) => {
   }, []);
 
   const toggleDarkMode = () => {
-    setIsDarkMode(prev => !prev);
+    setIsDarkMode(prev => {
+      const next = !prev;
+      updateSettingsPartial({ theme: next ? 'dark' : 'light' }).catch(() => {});
+      return next;
+    });
   };
 
   const value = {
