@@ -887,10 +887,18 @@ export function useChatComposerState({
       return;
     }
 
+    // Capture cursor position before state update so we insert at the right place
+    const cursorPos = textareaRef.current?.selectionStart ?? -1;
+
     setInput((previousInput) => {
-      const newInput = previousInput.trim() ? `${previousInput} ${text}` : text;
+      const pos = cursorPos >= 0 ? Math.min(cursorPos, previousInput.length) : previousInput.length;
+      const before = previousInput.slice(0, pos);
+      const after = previousInput.slice(pos);
+      const separator = before && !before.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      const newInput = before + separator + text + after;
       inputValueRef.current = newInput;
 
+      const newCursorPos = pos + separator.length + text.length;
       setTimeout(() => {
         if (!textareaRef.current) {
           return;
@@ -898,8 +906,7 @@ export function useChatComposerState({
 
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-        // Scroll to bottom so latest voice input is visible
-        textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+        textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
         const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
         setIsTextareaExpanded(textareaRef.current.scrollHeight > lineHeight * 2);
       }, 0);

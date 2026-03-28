@@ -403,6 +403,32 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Health check — no auth, no DB, always responds instantly
+app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
+
+// Request timing — log slow requests to help diagnose event loop blocks
+app.use((req, res, next) => {
+    const start = Date.now();
+    const { method, url } = req;
+    res.on('finish', () => {
+        const ms = Date.now() - start;
+        if (ms > 1000) {
+            const entry = `[${new Date().toISOString()}] SLOW_REQUEST: ${method} ${url} took ${ms}ms\n`;
+            console.warn(entry);
+            try { fs.appendFileSync(__crashLogPath, entry); } catch {}
+        }
+    });
+    // Detect if request never finishes (event loop blocked)
+    const timer = setTimeout(() => {
+        const entry = `[${new Date().toISOString()}] BLOCKED_REQUEST: ${method} ${url} has not responded after 10s\n`;
+        console.error(entry);
+        try { fs.appendFileSync(__crashLogPath, entry); } catch {}
+    }, 10000);
+    res.on('finish', () => clearTimeout(timer));
+    res.on('close', () => clearTimeout(timer));
+    next();
+});
+
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);
 

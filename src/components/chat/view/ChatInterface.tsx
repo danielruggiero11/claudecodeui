@@ -207,9 +207,10 @@ function ChatInterface({
   // Voice input integration
   const voiceSettings = loadVoiceSettings();
 
-  // Track how many characters at the end of the input are voice-interim.
-  // This is an exact count so slicing is always reliable regardless of content matching.
+  // Track how many characters of voice-interim text exist and where they were inserted.
   const voiceInterimLenRef = useRef(0);
+  // The cursor position where voice text is being inserted (end of inserted voice text).
+  const voiceInsertPosRef = useRef(0);
 
   const autoResizeTextarea = useCallback(() => {
     setTimeout(() => {
@@ -219,27 +220,37 @@ function ChatInterface({
     }, 0);
   }, [textareaRef]);
 
-  // Strip the current interim chars off the end of the input and return the base.
+  // Strip the current interim chars from the insertion position and return the base.
   const stripInterim = (prev: string): string => {
-    if (voiceInterimLenRef.current > 0 && prev.length >= voiceInterimLenRef.current) {
-      return prev.slice(0, prev.length - voiceInterimLenRef.current);
+    const len = voiceInterimLenRef.current;
+    if (len > 0) {
+      const end = voiceInsertPosRef.current;
+      const start = end - len;
+      if (start >= 0 && end <= prev.length) {
+        voiceInsertPosRef.current = start;
+        return prev.slice(0, start) + prev.slice(end);
+      }
     }
     return prev;
   };
 
-  // Finalized text — permanently append to whatever is in the textarea right now.
+  // Finalized text — insert at cursor position in the textarea.
   const handleVoiceFinalText = useCallback((text: string) => {
     if (!text) return;
     setInput((prev) => {
       const base = stripInterim(prev);
       voiceInterimLenRef.current = 0;
-      const separator = base && !base.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
-      return base + separator + text;
+      const insertPos = voiceInsertPosRef.current;
+      const before = base.slice(0, insertPos);
+      const after = base.slice(insertPos);
+      const separator = before && !before.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      voiceInsertPosRef.current = insertPos + separator.length + text.length;
+      return before + separator + text + after;
     });
     autoResizeTextarea();
   }, [setInput, autoResizeTextarea]);
 
-  // Interim text — replace previous interim at the end of the input.
+  // Interim text — replace previous interim at the insertion position.
   const handleVoiceInterimText = useCallback((text: string) => {
     setInput((prev) => {
       const base = stripInterim(prev);
@@ -247,10 +258,14 @@ function ChatInterface({
         voiceInterimLenRef.current = 0;
         return base;
       }
-      const separator = base && !base.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
-      const appended = separator + text;
-      voiceInterimLenRef.current = appended.length;
-      return base + appended;
+      const insertPos = voiceInsertPosRef.current;
+      const before = base.slice(0, insertPos);
+      const after = base.slice(insertPos);
+      const separator = before && !before.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      const inserted = separator + text;
+      voiceInterimLenRef.current = inserted.length;
+      voiceInsertPosRef.current = insertPos + inserted.length;
+      return before + inserted + after;
     });
     autoResizeTextarea();
   }, [setInput, autoResizeTextarea]);
@@ -274,12 +289,20 @@ function ChatInterface({
     isSupported: isVoiceSupported,
     error: voiceError,
     debugLog: voiceDebugLog,
-    toggleRecording: toggleVoiceRecording,
+    toggleRecording: rawToggleVoiceRecording,
   } = useVoiceInput({
     onFinalText: handleVoiceFinalText,
     onInterimText: handleVoiceInterimText,
     onVoiceCommandSend: handleVoiceCommandSend,
   });
+
+  // Wrap toggle to capture cursor position when recording starts
+  const toggleVoiceRecording = useCallback(() => {
+    if (!isVoiceRecording) {
+      voiceInsertPosRef.current = textareaRef.current?.selectionStart ?? input.length;
+    }
+    rawToggleVoiceRecording();
+  }, [isVoiceRecording, rawToggleVoiceRecording, textareaRef, input.length]);
 
   // On WebSocket reconnect, re-fetch the current session's messages from the server
   // so missed streaming events are shown. Also reset isLoading.

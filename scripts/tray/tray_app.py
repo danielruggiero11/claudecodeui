@@ -81,25 +81,30 @@ def _kill_process_on_port(port):
         print(f"[ClaudeCodeUI] Port cleanup warning: {e}")
 
 
+CRASH_LOG = PROJECT_ROOT / "crash.log"
+MAX_RAPID_RESTARTS = 5
+RAPID_RESTART_WINDOW = 30  # seconds
+
+
 class ClaudeCodeUITray:
     def __init__(self):
         self.icon = None
         self.server_process = None
+        self._shutting_down = False
+        self._restart_times = []
+        self._monitor_thread = None
+        self._server_env = None
+        self._build_frontend()
         self.start_server()
         self.create_tray_icon()
 
-    def start_server(self):
-        """Start the Node.js production server."""
-        _kill_process_on_port(PORT)
-
-        node_exe = "node"
-        server_script = str(PROJECT_ROOT / "server" / "index.js")
-
+    def _build_frontend(self):
+        """Build frontend once at startup."""
         env = os.environ.copy()
         env["SERVER_PORT"] = str(PORT)
         env["NODE_ENV"] = "production"
+        self._server_env = env
 
-        # Always rebuild to ensure dist/ matches latest source
         print("[ClaudeCodeUI] Building frontend...")
         build_result = subprocess.run(
             ["npm", "run", "build"],
@@ -111,7 +116,6 @@ class ClaudeCodeUITray:
         )
         if build_result.returncode != 0:
             print(f"[ClaudeCodeUI] Build failed: {build_result.stderr}")
-            # Fall back to existing dist/ if available
             dist_index = PROJECT_ROOT / "dist" / "index.html"
             if not dist_index.exists():
                 sys.exit(1)
@@ -119,17 +123,86 @@ class ClaudeCodeUITray:
         else:
             print("[ClaudeCodeUI] Build complete.")
 
+    def _log_crash(self, message):
+        """Append a crash entry to crash.log."""
+        from datetime import datetime
+        entry = f"[{datetime.now().isoformat()}] {message}\n"
+        print(f"[ClaudeCodeUI] {message}")
+        try:
+            with open(CRASH_LOG, "a", encoding="utf-8") as f:
+                f.write(entry)
+        except Exception:
+            pass
+
+    def start_server(self):
+        """Start the Node.js production server."""
+        _kill_process_on_port(PORT)
+
+        node_exe = "node"
+        server_script = str(PROJECT_ROOT / "server" / "index.js")
+
+        # Capture stdout/stderr to a log file for crash diagnosis
+        log_file = PROJECT_ROOT / "server.log"
+
         print(f"[ClaudeCodeUI] Starting server on port {PORT}...")
+        self._server_log = open(log_file, "a", encoding="utf-8")
         self.server_process = subprocess.Popen(
             [node_exe, server_script],
             cwd=str(PROJECT_ROOT),
-            env=env,
+            env=self._server_env,
             shell=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=self._server_log,
+            stderr=self._server_log,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         print(f"[ClaudeCodeUI] Server started (PID: {self.server_process.pid})")
+
+        # Start monitoring thread for auto-restart
+        if self._monitor_thread is None or not self._monitor_thread.is_alive():
+            import threading
+            self._monitor_thread = threading.Thread(
+                target=self._monitor_server, daemon=True
+            )
+            self._monitor_thread.start()
+
+    def _monitor_server(self):
+        """Watch the server process and auto-restart on crash."""
+        while not self._shutting_down:
+            if self.server_process is None:
+                time.sleep(2)
+                continue
+
+            ret = self.server_process.poll()
+            if ret is not None and not self._shutting_down:
+                self._log_crash(
+                    f"Server process died (exit code {ret}, PID {self.server_process.pid})"
+                )
+                try:
+                    self._server_log.close()
+                except Exception:
+                    pass
+
+                # Rate-limit restarts
+                now = time.time()
+                self._restart_times = [
+                    t for t in self._restart_times if now - t < RAPID_RESTART_WINDOW
+                ]
+                if len(self._restart_times) >= MAX_RAPID_RESTARTS:
+                    self._log_crash(
+                        f"Too many restarts ({MAX_RAPID_RESTARTS} in {RAPID_RESTART_WINDOW}s) — stopping"
+                    )
+                    break
+
+                self._restart_times.append(now)
+                self._log_crash("Auto-restarting server...")
+                time.sleep(1)
+                try:
+                    self.start_server()
+                except Exception as e:
+                    self._log_crash(f"Failed to restart: {e}")
+                    break
+            else:
+                time.sleep(2)
 
     def create_icon_image(self):
         """Load the Claude logo for the system tray."""
@@ -173,6 +246,7 @@ class ClaudeCodeUITray:
     def quit_app(self, icon=None, item=None):
         """Stop the server and exit."""
         print("[ClaudeCodeUI] Shutting down...")
+        self._shutting_down = True
         if self.server_process:
             if sys.platform == "win32":
                 self.server_process.terminate()
@@ -182,6 +256,11 @@ class ClaudeCodeUITray:
                 self.server_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.server_process.kill()
+
+        try:
+            self._server_log.close()
+        except Exception:
+            pass
 
         if self.icon:
             self.icon.stop()
