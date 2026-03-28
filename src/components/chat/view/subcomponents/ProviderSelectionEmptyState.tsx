@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import SessionProviderLogo from "../../../llm-logo-provider/SessionProviderLogo";
@@ -8,6 +8,7 @@ import {
   CODEX_MODELS,
   GEMINI_MODELS,
 } from "../../../../../shared/modelConstants";
+import { getCachedSettings } from "../../../../utils/settingsSync";
 import type { ProjectSession, SessionProvider } from "../../../../types/app";
 import { NextTaskBanner } from "../../../task-master";
 
@@ -119,6 +120,12 @@ export default function ProviderSelectionEmptyState({
     defaultValue: "Start the next task",
   });
 
+  const enabledProvidersList = useMemo(() => {
+    const cached = getCachedSettings();
+    const enabled = cached?.enabledProviders || { claude: true, cursor: true, codex: true, gemini: true };
+    return PROVIDERS.filter((p) => enabled[p.id as keyof typeof enabled] !== false);
+  }, []);
+
   const selectProvider = (next: SessionProvider) => {
     setProvider(next);
     localStorage.setItem("selected-provider", next);
@@ -166,8 +173,8 @@ export default function ProviderSelectionEmptyState({
           </div>
 
           {/* Provider cards — horizontal row, equal width */}
-          <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
-            {PROVIDERS.map((p) => {
+          <div className={`mb-6 grid gap-2 sm:gap-2.5 ${enabledProvidersList.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'}`}>
+            {enabledProvidersList.map((p) => {
               const active = provider === p.id;
               return (
                 <button

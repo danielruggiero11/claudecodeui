@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronDown, ChevronRight, Edit3, Eye, EyeOff, Folder, FolderOpen, Star, Trash2, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronRight, Edit3, Eye, EyeOff, Folder, FolderOpen, Plus, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
@@ -126,172 +126,178 @@ export default function SidebarProjectItem({
         <div className="md:hidden">
           <div
             className={cn(
-              'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150',
+              'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 transition-all duration-150',
               isSelected && 'bg-primary/5 border-primary/20',
               isStarred &&
                 !isSelected &&
                 'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
             )}
-            onClick={toggleProject}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div
-                  className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
-                    isExpanded ? 'bg-primary/10' : 'bg-muted',
-                  )}
-                >
-                  {isExpanded ? (
-                    <FolderOpen className="h-4 w-4 text-primary" />
-                  ) : (
-                    <Folder className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={editingName}
-                      onChange={(event) => onEditingNameChange(event.target.value)}
-                      className="w-full rounded-lg border-2 border-primary/40 bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-all duration-200 focus:border-primary focus:shadow-md focus:outline-none"
-                      placeholder={t('projects.projectNamePlaceholder')}
-                      autoFocus
-                      autoComplete="off"
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          saveProjectName();
-                        }
-
-                        if (event.key === 'Escape') {
-                          onCancelEditingProject();
-                        }
-                      }}
-                      style={{
-                        fontSize: '16px',
-                        WebkitAppearance: 'none',
-                        borderRadius: '8px',
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <div className="flex min-w-0 flex-1 items-center justify-between">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <h3 className="truncate text-sm font-medium text-foreground">{project.displayName}</h3>
-                          {isArchived && (
-                            <span className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                              <Archive className="h-2.5 w-2.5" />
-                            </span>
-                          )}
-                        </div>
-                        {tasksEnabled && (
-                          <TaskIndicator
-                            status={taskStatus}
-                            size="xs"
-                            className="ml-2 hidden flex-shrink-0 md:inline-flex"
-                          />
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{sessionCountLabel}</p>
-                    </>
-                  )}
-                </div>
+            {/* Row 1: Title (full width, tappable to expand) */}
+            <div className="flex items-center gap-2" onClick={toggleProject}>
+              <div
+                className={cn(
+                  'w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
+                  isExpanded ? 'bg-primary/10' : 'bg-muted',
+                )}
+              >
+                {isExpanded ? (
+                  <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                ) : (
+                  <Folder className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
               </div>
 
-              <div className="flex items-center gap-1">
-                {isEditing ? (
-                  <>
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-green-600"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        saveProjectName();
-                      }}
-                    >
-                      <Check className="h-4 w-4 text-white" />
-                    </button>
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-gray-600"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onCancelEditingProject();
-                      }}
-                    >
-                      <X className="h-4 w-4 text-white" />
-                    </button>
-                  </>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={editingName}
+                  onChange={(event) => onEditingNameChange(event.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border-2 border-primary/40 bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-all duration-200 focus:border-primary focus:shadow-md focus:outline-none"
+                  placeholder={t('projects.projectNamePlaceholder')}
+                  autoFocus
+                  autoComplete="off"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      saveProjectName();
+                    }
+                    if (event.key === 'Escape') {
+                      onCancelEditingProject();
+                    }
+                  }}
+                  style={{
+                    fontSize: '16px',
+                    WebkitAppearance: 'none',
+                    borderRadius: '8px',
+                  }}
+                />
+              ) : (
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm font-semibold text-foreground" title={project.displayName}>
+                    {project.displayName}
+                  </h3>
+                  {isArchived && (
+                    <span className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      <Archive className="h-2.5 w-2.5" /> Archived
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-muted/30">
+                {isExpanded ? (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
                 ) : (
-                  <>
-                    <button
-                      className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
-                        isStarred
-                          ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
-                          : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
-                      )}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleStarProject();
-                      }}
-                      title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
-                    >
-                      <Star
-                        className={cn(
-                          'w-4 h-4 transition-colors',
-                          isStarred
-                            ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                            : 'text-gray-600 dark:text-gray-400',
-                        )}
-                      />
-                    </button>
-
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-gray-500/10 active:scale-90 dark:border-gray-800 dark:bg-gray-900/30"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (isArchived) { onUnhideProject(project); } else { onHideProject(project); }
-                      }}
-                      title={isArchived ? t('tooltips.unhideProject', 'Restore project') : t('tooltips.hideProject', 'Hide project')}
-                    >
-                      {isArchived
-                        ? <Eye className="h-4 w-4 text-primary" />
-                        : <EyeOff className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      }
-                    </button>
-
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDeleteProject(project);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                    </button>
-
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 active:scale-90 dark:border-primary/30 dark:bg-primary/20"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onStartEditingProject(project);
-                      }}
-                    >
-                      <Edit3 className="h-4 w-4 text-primary" />
-                    </button>
-
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
-                      {isExpanded ? (
-                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                      )}
-                    </div>
-                  </>
+                  <ChevronRight className="h-3 w-3 text-muted-foreground" />
                 )}
               </div>
             </div>
+
+            {/* Row 2: Action buttons */}
+            <div className="mt-2 flex items-center gap-1.5">
+              {isEditing ? (
+                <>
+                  <button
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-green-600"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      saveProjectName();
+                    }}
+                  >
+                    <Check className="h-4 w-4 text-white" />
+                  </button>
+                  <button
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-gray-600"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCancelEditingProject();
+                    }}
+                  >
+                    <X className="h-4 w-4 text-white" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* New Session button */}
+                  <button
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 active:scale-95 dark:border-primary/40 dark:bg-primary/20"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNewSession(project);
+                    }}
+                    title="New session"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-xs font-medium text-primary">New</span>
+                  </button>
+
+                  <button
+                    className={cn(
+                      'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
+                      isStarred
+                        ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
+                        : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
+                    )}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleStarProject();
+                    }}
+                    title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+                  >
+                    <Star
+                      className={cn(
+                        'w-3.5 h-3.5 transition-colors',
+                        isStarred
+                          ? 'text-yellow-600 dark:text-yellow-400 fill-current'
+                          : 'text-gray-600 dark:text-gray-400',
+                      )}
+                    />
+                  </button>
+
+                  <button
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 active:scale-90 dark:border-primary/30 dark:bg-primary/20"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onStartEditingProject(project);
+                    }}
+                  >
+                    <Edit3 className="h-3.5 w-3.5 text-primary" />
+                  </button>
+
+                  <button
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-gray-500/10 active:scale-90 dark:border-gray-800 dark:bg-gray-900/30"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (isArchived) { onUnhideProject(project); } else { onHideProject(project); }
+                    }}
+                    title={isArchived ? t('tooltips.unhideProject', 'Restore project') : t('tooltips.hideProject', 'Hide project')}
+                  >
+                    {isArchived
+                      ? <Eye className="h-3.5 w-3.5 text-primary" />
+                      : <EyeOff className="h-3.5 w-3.5 text-gray-600 dark:text-gray-400" />
+                    }
+                  </button>
+
+                  <button
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteProject(project);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Row 3: Session count */}
+            {!isEditing && (
+              <div className="mt-1.5 text-xs text-muted-foreground">
+                {sessionCountLabel}
+              </div>
+            )}
           </div>
         </div>
 

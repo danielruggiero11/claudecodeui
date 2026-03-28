@@ -170,6 +170,12 @@ export default function AppContent() {
       )}
 
       <div className={`flex min-w-0 flex-1 flex-col ${isMobile ? 'pb-mobile-nav' : ''}`}>
+        {!isConnected && (
+          <div className="flex items-center justify-center gap-2 bg-destructive/90 px-3 py-1.5 text-xs text-destructive-foreground">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive-foreground/80" />
+            Server disconnected — reconnecting...
+          </div>
+        )}
         <MainContent
           selectedProject={selectedProject}
           selectedSession={selectedSession}

@@ -738,6 +738,8 @@ export function useChatComposerState({
     // Re-run when input changes so restored drafts get the same autosize behavior as typed text.
     textareaRef.current.style.height = 'auto';
     textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    // Keep textarea scrolled to the bottom so latest text is always visible (especially on mobile with voice input)
+    textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
     const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
     const expanded = textareaRef.current.scrollHeight > lineHeight * 2;
     setIsTextareaExpanded(expanded);
@@ -825,6 +827,8 @@ export function useChatComposerState({
       const target = event.currentTarget;
       target.style.height = 'auto';
       target.style.height = `${target.scrollHeight}px`;
+      // Keep scrolled to bottom so latest text is visible on mobile
+      target.scrollTop = target.scrollHeight;
       setCursorPosition(target.selectionStart);
       syncInputOverlayScroll(target);
 
@@ -894,6 +898,8 @@ export function useChatComposerState({
 
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        // Scroll to bottom so latest voice input is visible
+        textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
         const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
         setIsTextareaExpanded(textareaRef.current.scrollHeight > lineHeight * 2);
       }, 0);

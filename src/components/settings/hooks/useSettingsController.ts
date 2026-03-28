@@ -813,6 +813,11 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
           codex: localStorage.getItem('codex-model') || '',
           gemini: localStorage.getItem('gemini-model') || '',
         },
+        enabledProviders: cached?.enabledProviders || {
+          claude: true, cursor: true, codex: true, gemini: true,
+        },
+        defaultTab: cached?.defaultTab || localStorage.getItem('defaultTab') || 'chat',
+        mobileShowSidebarOnLaunch: cached?.mobileShowSidebarOnLaunch ?? true,
         selectedProvider: cached?.selectedProvider || localStorage.getItem('selected-provider') || 'claude',
         projectSortOrder,
         theme: cached?.theme || localStorage.getItem('theme') || 'dark',

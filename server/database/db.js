@@ -58,6 +58,8 @@ if (DB_PATH !== LEGACY_DB_PATH && !fs.existsSync(DB_PATH) && fs.existsSync(LEGAC
 
 // Create database connection
 const db = new Database(DB_PATH);
+db.pragma('busy_timeout = 5000');
+db.pragma('journal_mode = WAL');
 
 // app_config must exist before any other module imports (auth.js reads the JWT secret at load time).
 // runMigrations() also creates this table, but it runs too late for existing installations
@@ -516,6 +518,9 @@ const DEFAULT_USER_SETTINGS = {
     fontSize: '14',
   },
   models: { claude: '', cursor: '', codex: '', gemini: '' },
+  enabledProviders: { claude: true, cursor: true, codex: true, gemini: true },
+  defaultTab: 'chat',
+  mobileShowSidebarOnLaunch: true,
   selectedProvider: 'claude',
   projectSortOrder: 'name',
   theme: 'dark',

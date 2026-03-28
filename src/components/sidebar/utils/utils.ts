@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { Project } from '../../../types/app';
-import { updateSettingsPartial } from '../../../utils/settingsSync';
+import { getCachedSettings, updateSettingsPartial } from '../../../utils/settingsSync';
 import type {
   AdditionalSessionsByProject,
   ProjectSortOrder,
@@ -8,6 +8,11 @@ import type {
   SessionViewModel,
   SessionWithProvider,
 } from '../types/types';
+
+const getEnabledProviders = (): Record<string, boolean> => {
+  const cached = getCachedSettings();
+  return cached?.enabledProviders || { claude: true, cursor: true, codex: true, gemini: true };
+};
 
 export const readProjectSortOrder = (): ProjectSortOrder => {
   try {
@@ -105,27 +110,42 @@ export const getAllSessions = (
   project: Project,
   additionalSessions: AdditionalSessionsByProject,
 ): SessionWithProvider[] => {
-  const claudeSessions = [
-    ...(project.sessions || []),
-    ...(additionalSessions[project.name] || []),
-  ].map((session) => ({ ...session, __provider: 'claude' as const }));
+  const enabled = getEnabledProviders();
+  const all: SessionWithProvider[] = [];
 
-  const cursorSessions = (project.cursorSessions || []).map((session) => ({
-    ...session,
-    __provider: 'cursor' as const,
-  }));
+  if (enabled.claude !== false) {
+    const claudeSessions = [
+      ...(project.sessions || []),
+      ...(additionalSessions[project.name] || []),
+    ].map((session) => ({ ...session, __provider: 'claude' as const }));
+    all.push(...claudeSessions);
+  }
 
-  const codexSessions = (project.codexSessions || []).map((session) => ({
-    ...session,
-    __provider: 'codex' as const,
-  }));
+  if (enabled.cursor !== false) {
+    const cursorSessions = (project.cursorSessions || []).map((session) => ({
+      ...session,
+      __provider: 'cursor' as const,
+    }));
+    all.push(...cursorSessions);
+  }
 
-  const geminiSessions = (project.geminiSessions || []).map((session) => ({
-    ...session,
-    __provider: 'gemini' as const,
-  }));
+  if (enabled.codex !== false) {
+    const codexSessions = (project.codexSessions || []).map((session) => ({
+      ...session,
+      __provider: 'codex' as const,
+    }));
+    all.push(...codexSessions);
+  }
 
-  return [...claudeSessions, ...cursorSessions, ...codexSessions, ...geminiSessions].sort(
+  if (enabled.gemini !== false) {
+    const geminiSessions = (project.geminiSessions || []).map((session) => ({
+      ...session,
+      __provider: 'gemini' as const,
+    }));
+    all.push(...geminiSessions);
+  }
+
+  return all.sort(
     (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
   );
 };

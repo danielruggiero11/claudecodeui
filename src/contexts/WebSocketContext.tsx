@@ -78,10 +78,11 @@ const useWebSocketProviderState = (): WebSocketContextType => {
         }
       };
 
-      websocket.onclose = () => {
+      websocket.onclose = (event) => {
+        console.warn(`[WS] Connection closed: code=${event.code} reason=${event.reason || 'none'} wasClean=${event.wasClean}`);
         setIsConnected(false);
         wsRef.current = null;
-        
+
         // Attempt to reconnect after 3 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
           if (unmountedRef.current) return; // Prevent reconnection if unmounted
@@ -89,8 +90,8 @@ const useWebSocketProviderState = (): WebSocketContextType => {
         }, 3000);
       };
 
-      websocket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+      websocket.onerror = () => {
+        console.error(`[WS] Connection error (readyState=${websocket.readyState})`);
       };
 
     } catch (error) {

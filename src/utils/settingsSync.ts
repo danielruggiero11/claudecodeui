@@ -50,6 +50,14 @@ export interface PersistedSettings {
     codex: string;
     gemini: string;
   };
+  enabledProviders: {
+    claude: boolean;
+    cursor: boolean;
+    codex: boolean;
+    gemini: boolean;
+  };
+  defaultTab: string;
+  mobileShowSidebarOnLaunch: boolean;
   selectedProvider: string;
   projectSortOrder: string;
   theme: string;
@@ -176,6 +184,15 @@ function writeLegacyKeys(settings: PersistedSettings): void {
     localStorage.setItem('codeEditorLineNumbers', String(settings.codeEditor.lineNumbers));
     localStorage.setItem('codeEditorFontSize', settings.codeEditor.fontSize);
 
+    // Provider enable/disable & default tab
+    if (settings.enabledProviders) {
+      localStorage.setItem('enabledProviders', JSON.stringify(settings.enabledProviders));
+    }
+    if (settings.defaultTab) {
+      localStorage.setItem('defaultTab', settings.defaultTab);
+    }
+    localStorage.setItem('mobileShowSidebarOnLaunch', String(settings.mobileShowSidebarOnLaunch ?? true));
+
     // Other preferences
     localStorage.setItem('theme', settings.theme);
     localStorage.setItem('userLanguage', settings.userLanguage);
@@ -247,6 +264,14 @@ export function buildSettingsFromLocalStorage(): Partial<PersistedSettings> {
       codex: localStorage.getItem('codex-model') || '',
       gemini: localStorage.getItem('gemini-model') || '',
     },
+    enabledProviders: safeParseJson(localStorage.getItem('enabledProviders'), {
+      claude: true,
+      cursor: true,
+      codex: true,
+      gemini: true,
+    }),
+    defaultTab: localStorage.getItem('defaultTab') || 'chat',
+    mobileShowSidebarOnLaunch: localStorage.getItem('mobileShowSidebarOnLaunch') !== 'false',
     selectedProvider: localStorage.getItem('selected-provider') || 'claude',
     projectSortOrder: (claude.projectSortOrder as string) || 'name',
     theme: localStorage.getItem('theme') || 'dark',

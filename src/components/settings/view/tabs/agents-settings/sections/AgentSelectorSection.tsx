@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { PillBar, Pill } from '../../../../../../shared/view/ui';
 import SessionProviderLogo from '../../../../../llm-logo-provider/SessionProviderLogo';
+import { getCachedSettings } from '../../../../../../utils/settingsSync';
 import type { AgentProvider } from '../../../../types/types';
 import type { AgentSelectorSectionProps } from '../types';
 
@@ -17,6 +19,8 @@ export default function AgentSelectorSection({
   onSelectAgent,
   agentContextById,
 }: AgentSelectorSectionProps) {
+  // Always show all providers in settings (so users can re-enable disabled ones)
+  // but visually mark disabled ones
   return (
     <div className="flex-shrink-0 border-b border-border px-3 py-2 md:px-4 md:py-3">
       <PillBar className="w-full md:w-auto">

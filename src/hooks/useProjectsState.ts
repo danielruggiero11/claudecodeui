@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { api } from '../utils/api';
+import { getCachedSettings } from '../utils/settingsSync';
 import type {
   AppSocketMessage,
   AppTab,
@@ -116,9 +117,14 @@ const isValidTab = (tab: string): tab is AppTab => {
 
 const readPersistedTab = (): AppTab => {
   try {
+    // Use last active tab if available, otherwise fall back to default tab setting
     const stored = localStorage.getItem('activeTab');
     if (stored && isValidTab(stored)) {
       return stored as AppTab;
+    }
+    const defaultTab = localStorage.getItem('defaultTab');
+    if (defaultTab && isValidTab(defaultTab)) {
+      return defaultTab as AppTab;
     }
   } catch {
     // localStorage unavailable
@@ -146,7 +152,12 @@ export function useProjectsState({
     }
   }, [activeTab]);
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // On mobile, auto-open sidebar on first load if no session is selected and setting is enabled
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (!isMobile || sessionId) return false;
+    const cached = getCachedSettings();
+    return cached?.mobileShowSidebarOnLaunch ?? localStorage.getItem('mobileShowSidebarOnLaunch') !== 'false';
+  });
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgress | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);

@@ -101,15 +101,23 @@ let isGetProjectsRunning = false; // Flag to prevent reentrant calls
 
 // Broadcast progress to all connected WebSocket clients
 function broadcastProgress(progress) {
-    const message = JSON.stringify({
-        type: 'loading_progress',
-        ...progress
-    });
-    connectedClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-        }
-    });
+    try {
+        const message = JSON.stringify({
+            type: 'loading_progress',
+            ...progress
+        });
+        connectedClients.forEach(client => {
+            try {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(message);
+                }
+            } catch (error) {
+                console.error('[ERROR] broadcastProgress client send failed:', error.message);
+            }
+        });
+    } catch (error) {
+        console.error('[ERROR] broadcastProgress failed:', error.message);
+    }
 }
 
 // Setup file system watchers for Claude, Cursor, and Codex project/session folders
@@ -163,8 +171,12 @@ async function setupProjectsWatcher() {
                 });
 
                 connectedClients.forEach(client => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(updateMessage);
+                    try {
+                        if (client.readyState === WebSocket.OPEN) {
+                            client.send(updateMessage);
+                        }
+                    } catch (sendErr) {
+                        console.error('[ERROR] Project update broadcast send failed:', sendErr.message);
                     }
                 });
 
@@ -222,6 +234,21 @@ async function setupProjectsWatcher() {
 
 const app = express();
 const server = http.createServer(app);
+const __crashLogPath = path.join(__dirname, '..', 'crash.log');
+const __logCrash = (label, error) => {
+    const entry = `[${new Date().toISOString()}] ${label}: ${error?.stack || error}\n`;
+    console.error(entry);
+    try { fs.appendFileSync(__crashLogPath, entry); } catch {}
+};
+// Log EVERY process exit — this fires even on process.exit() and native crashes
+process.on('exit', (code) => {
+    const entry = `[${new Date().toISOString()}] PROCESS_EXIT: code=${code}\n` +
+        `  Stack: ${new Error('exit trace').stack}\n`;
+    try { fs.appendFileSync(__crashLogPath, entry); } catch {}
+});
+server.on('error', (error) => {
+    __logCrash('HTTP_SERVER_ERROR', error);
+});
 
 const ptySessionsMap = new Map();
 const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
@@ -326,6 +353,29 @@ const wss = new WebSocketServer({
         return true;
     }
 });
+
+wss.on('error', (error) => {
+    __logCrash('WEBSOCKET_SERVER_ERROR', error);
+});
+
+// Heartbeat — detect dead WebSocket connections (e.g. mobile sleep)
+const WS_HEARTBEAT_INTERVAL_MS = 30000;
+wss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+});
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            console.log('[INFO] Terminating unresponsive WebSocket client');
+            connectedClients.delete(ws);
+            return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, WS_HEARTBEAT_INTERVAL_MS);
+wss.on('close', () => clearInterval(heartbeatInterval));
 
 // Make WebSocket server available to routes
 app.locals.wss = wss;
@@ -1484,8 +1534,12 @@ class WebSocketWriter {
     }
 
     send(data) {
-        if (this.ws.readyState === 1) { // WebSocket.OPEN
-            this.ws.send(JSON.stringify(data));
+        try {
+            if (this.ws.readyState === 1) { // WebSocket.OPEN
+                this.ws.send(JSON.stringify(data));
+            }
+        } catch (error) {
+            console.error('[ERROR] WebSocketWriter.send failed:', error.message);
         }
     }
 
@@ -1643,6 +1697,12 @@ function handleChatConnection(ws, request) {
         }
     });
 
+    ws.on('error', (error) => {
+        console.error('[ERROR] Chat WebSocket connection error:', error.message);
+        // Remove dead client so broadcasts don't target it
+        connectedClients.delete(ws);
+    });
+
     ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
         // Remove from connected clients
@@ -1704,19 +1764,23 @@ function handleShellConnection(ws) {
 
                     clearTimeout(existingSession.timeoutId);
 
-                    ws.send(JSON.stringify({
-                        type: 'output',
-                        data: `\x1b[36m[Reconnected to existing session]\x1b[0m\r\n`
-                    }));
+                    try {
+                        ws.send(JSON.stringify({
+                            type: 'output',
+                            data: `\x1b[36m[Reconnected to existing session]\x1b[0m\r\n`
+                        }));
 
-                    if (existingSession.buffer && existingSession.buffer.length > 0) {
-                        console.log(`📜 Sending ${existingSession.buffer.length} buffered messages`);
-                        existingSession.buffer.forEach(bufferedData => {
-                            ws.send(JSON.stringify({
-                                type: 'output',
-                                data: bufferedData
-                            }));
-                        });
+                        if (existingSession.buffer && existingSession.buffer.length > 0) {
+                            console.log(`📜 Sending ${existingSession.buffer.length} buffered messages`);
+                            existingSession.buffer.forEach(bufferedData => {
+                                ws.send(JSON.stringify({
+                                    type: 'output',
+                                    data: bufferedData
+                                }));
+                            });
+                        }
+                    } catch (error) {
+                        console.error('[ERROR] PTY reconnect buffer send failed:', error.message);
                     }
 
                     existingSession.ws = ws;
@@ -1878,6 +1942,7 @@ function handleShellConnection(ws) {
                         }
 
                         if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                          try {
                             let outputData = data;
 
                             const cleanChunk = stripAnsiSequences(data);
@@ -1927,6 +1992,9 @@ function handleShellConnection(ws) {
                                 type: 'output',
                                 data: outputData
                             }));
+                          } catch (error) {
+                            console.error('[ERROR] PTY onData ws.send failed:', error.message);
+                          }
                         }
                     });
 
@@ -1935,10 +2003,14 @@ function handleShellConnection(ws) {
                         console.log('🔚 Shell process exited with code:', exitCode.exitCode, 'signal:', exitCode.signal);
                         const session = ptySessionsMap.get(ptySessionKey);
                         if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            session.ws.send(JSON.stringify({
-                                type: 'output',
-                                data: `\r\n\x1b[33mProcess exited with code ${exitCode.exitCode}${exitCode.signal ? ` (${exitCode.signal})` : ''}\x1b[0m\r\n`
-                            }));
+                            try {
+                                session.ws.send(JSON.stringify({
+                                    type: 'output',
+                                    data: `\r\n\x1b[33mProcess exited with code ${exitCode.exitCode}${exitCode.signal ? ` (${exitCode.signal})` : ''}\x1b[0m\r\n`
+                                }));
+                            } catch (error) {
+                                console.error('[ERROR] PTY onExit ws.send failed:', error.message);
+                            }
                         }
                         if (session && session.timeoutId) {
                             clearTimeout(session.timeoutId);
@@ -2005,7 +2077,12 @@ function handleShellConnection(ws) {
     });
 
     ws.on('error', (error) => {
-        console.error('[ERROR] Shell WebSocket error:', error);
+        console.error('[ERROR] Shell WebSocket error:', error.message);
+        // Null out session ws so PTY onData doesn't try to send to a dead socket
+        if (ptySessionKey) {
+            const session = ptySessionsMap.get(ptySessionKey);
+            if (session) session.ws = null;
+        }
     });
 }
 // Audio transcription endpoint
@@ -2603,6 +2680,14 @@ async function startServer() {
         };
         process.on('SIGTERM', () => void shutdownPlugins());
         process.on('SIGINT', () => void shutdownPlugins());
+
+        // Global error handlers — prevent the server from silently dying.
+        process.on('uncaughtException', (error) => {
+            __logCrash('UNCAUGHT_EXCEPTION', error);
+        });
+        process.on('unhandledRejection', (reason) => {
+            __logCrash('UNHANDLED_REJECTION', reason);
+        });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);
         process.exit(1);
