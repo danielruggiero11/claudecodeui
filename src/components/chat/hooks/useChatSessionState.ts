@@ -336,8 +336,18 @@ export function useChatSessionState({
     if (sessionChanged) {
       resetStreamingState();
       pendingViewSessionRef.current = null;
-      setClaudeStatus(null);
-      setCanAbortSession(false);
+
+      // Check if the target session is actively processing
+      const targetIsProcessing = processingSessions?.has(selectedSession.id);
+      if (targetIsProcessing) {
+        // Restore active UI state — check-session-status will refine this
+        setIsLoading(true);
+        setCanAbortSession(true);
+        setClaudeStatus({ text: 'Working...', tokens: 0, can_interrupt: true });
+      } else {
+        setClaudeStatus(null);
+        setCanAbortSession(false);
+      }
     }
 
     // Reset pagination/scroll state
@@ -356,7 +366,10 @@ export function useChatSessionState({
 
     if (sessionChanged) {
       setTokenBudget(null);
-      setIsLoading(false);
+      const targetIsProcessing = processingSessions?.has(selectedSession.id);
+      if (!targetIsProcessing) {
+        setIsLoading(false);
+      }
     }
 
     setCurrentSessionId(selectedSession.id);
@@ -364,9 +377,12 @@ export function useChatSessionState({
       sessionStorage.setItem('cursorSessionId', selectedSession.id);
     }
 
-    // Check session status
+    // Check session status and fetch pending permissions for active sessions
     if (ws) {
       sendMessage({ type: 'check-session-status', sessionId: selectedSession.id, provider });
+      if (processingSessions?.has(selectedSession.id)) {
+        sendMessage({ type: 'get-pending-permissions', sessionId: selectedSession.id });
+      }
     }
 
     lastLoadedSessionKeyRef.current = sessionKey;
@@ -391,6 +407,7 @@ export function useChatSessionState({
     });
   }, [
     pendingViewSessionRef,
+    processingSessions,
     resetStreamingState,
     selectedProject,
     selectedSession?.id,

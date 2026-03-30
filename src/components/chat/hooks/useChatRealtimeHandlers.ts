@@ -168,6 +168,10 @@ export function useChatRealtimeHandlers({
           return;
         }
 
+        case 'reconnect-all-writers-response':
+          // Handled server-side; no frontend action needed
+          return;
+
         default:
           // Unknown legacy message type — ignore
           return;
@@ -179,11 +183,17 @@ export function useChatRealtimeHandlers({
     /* ---------------------------------------------------------------- */
 
     const sid = msg.sessionId || activeViewSessionId;
+    const isCurrentViewSession = !sid || sid === activeViewSessionId;
 
     // --- Streaming: buffer for performance ---
     if (msg.kind === 'stream_delta') {
       const text = msg.content || '';
       if (!text) return;
+      // Background session — route to store directly, skip shared buffer
+      if (sid && !isCurrentViewSession) {
+        sessionStore.appendRealtime(sid, msg as NormalizedMessage);
+        return;
+      }
       streamBufferRef.current += text;
       accumulatedStreamRef.current += text;
       if (!streamTimerRef.current) {
@@ -194,26 +204,24 @@ export function useChatRealtimeHandlers({
           }
         }, 100);
       }
-      // Also route to store for non-active sessions
-      if (sid && sid !== activeViewSessionId) {
-        sessionStore.appendRealtime(sid, msg as NormalizedMessage);
-      }
       return;
     }
 
     if (msg.kind === 'stream_end') {
-      if (streamTimerRef.current) {
-        clearTimeout(streamTimerRef.current);
-        streamTimerRef.current = null;
-      }
-      if (sid) {
-        if (accumulatedStreamRef.current) {
+      if (isCurrentViewSession) {
+        if (streamTimerRef.current) {
+          clearTimeout(streamTimerRef.current);
+          streamTimerRef.current = null;
+        }
+        if (sid && accumulatedStreamRef.current) {
           sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
         }
+        if (sid) sessionStore.finalizeStreaming(sid);
+        accumulatedStreamRef.current = '';
+        streamBufferRef.current = '';
+      } else if (sid) {
         sessionStore.finalizeStreaming(sid);
       }
-      accumulatedStreamRef.current = '';
-      streamBufferRef.current = '';
       return;
     }
 
@@ -245,59 +253,62 @@ export function useChatRealtimeHandlers({
 
       case 'complete': {
         // Flush any remaining streaming state
-        if (streamTimerRef.current) {
-          clearTimeout(streamTimerRef.current);
-          streamTimerRef.current = null;
+        if (isCurrentViewSession) {
+          if (streamTimerRef.current) {
+            clearTimeout(streamTimerRef.current);
+            streamTimerRef.current = null;
+          }
+          if (sid && accumulatedStreamRef.current) {
+            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
+            sessionStore.finalizeStreaming(sid);
+          }
+          accumulatedStreamRef.current = '';
+          streamBufferRef.current = '';
         }
-        if (sid && accumulatedStreamRef.current) {
-          sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-          sessionStore.finalizeStreaming(sid);
-        }
-        accumulatedStreamRef.current = '';
-        streamBufferRef.current = '';
 
-        setIsLoading(false);
-        setCanAbortSession(false);
-        setClaudeStatus(null);
-        setPendingPermissionRequests([]);
+        // Lifecycle callbacks — always fire (update sidebar indicators, processingSessions)
         onSessionInactive?.(sid);
         onSessionNotProcessing?.(sid);
 
-        // Handle aborted case
-        if (msg.aborted) {
-          // Abort was requested — the complete event confirms it
-          // No special UI action needed beyond clearing loading state above
-          // The backend already sent any abort-related messages
-          break;
-        }
+        // UI state — only update for the currently viewed session
+        if (isCurrentViewSession) {
+          setIsLoading(false);
+          setCanAbortSession(false);
+          setClaudeStatus(null);
+          setPendingPermissionRequests([]);
 
-        // Clear pending session
-        const pendingSessionId = sessionStorage.getItem('pendingSessionId');
-        if (pendingSessionId && !currentSessionId && msg.exitCode === 0) {
-          const actualId = msg.actualSessionId || pendingSessionId;
-          setCurrentSessionId(actualId);
-          if (msg.actualSessionId) {
-            onNavigateToSession?.(actualId);
-          }
-          sessionStorage.removeItem('pendingSessionId');
-          if (window.refreshProjects) {
-            setTimeout(() => window.refreshProjects?.(), 500);
+          if (msg.aborted) break;
+
+          // Clear pending session
+          const pendingSessionId = sessionStorage.getItem('pendingSessionId');
+          if (pendingSessionId && !currentSessionId && msg.exitCode === 0) {
+            const actualId = msg.actualSessionId || pendingSessionId;
+            setCurrentSessionId(actualId);
+            if (msg.actualSessionId) {
+              onNavigateToSession?.(actualId);
+            }
+            sessionStorage.removeItem('pendingSessionId');
+            if (window.refreshProjects) {
+              setTimeout(() => window.refreshProjects?.(), 500);
+            }
           }
         }
         break;
       }
 
       case 'error': {
-        setIsLoading(false);
-        setCanAbortSession(false);
-        setClaudeStatus(null);
+        if (isCurrentViewSession) {
+          setIsLoading(false);
+          setCanAbortSession(false);
+          setClaudeStatus(null);
+        }
         onSessionInactive?.(sid);
         onSessionNotProcessing?.(sid);
         break;
       }
 
       case 'permission_request': {
-        if (!msg.requestId) break;
+        if (!msg.requestId || !isCurrentViewSession) break;
         setPendingPermissionRequests((prev) => {
           if (prev.some((r: PendingPermissionRequest) => r.requestId === msg.requestId)) return prev;
           return [...prev, {
@@ -316,13 +327,14 @@ export function useChatRealtimeHandlers({
       }
 
       case 'permission_cancelled': {
-        if (msg.requestId) {
+        if (isCurrentViewSession && msg.requestId) {
           setPendingPermissionRequests((prev) => prev.filter((r: PendingPermissionRequest) => r.requestId !== msg.requestId));
         }
         break;
       }
 
       case 'status': {
+        if (!isCurrentViewSession) break;
         if (msg.text === 'token_budget' && msg.tokenBudget) {
           setTokenBudget(msg.tokenBudget as Record<string, unknown>);
         } else if (msg.text) {

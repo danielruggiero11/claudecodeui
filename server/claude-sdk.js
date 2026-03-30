@@ -167,8 +167,12 @@ function mapCliOptionsToSDK(options = {}) {
 
   // Handle tool permissions
   if (settings.skipPermissions && permissionMode !== 'plan') {
-    // When skipping permissions, use bypassPermissions mode
+    // When skipping permissions, use bypassPermissions mode.
+    // The SDK requires allowDangerouslySkipPermissions to be set alongside
+    // bypassPermissions, otherwise it may silently gate tools at its own layer
+    // before the canUseTool callback runs.
     sdkOptions.permissionMode = 'bypassPermissions';
+    sdkOptions.allowDangerouslySkipPermissions = true;
   }
 
   let allowedTools = [...(settings.allowedTools || [])];
@@ -206,6 +210,11 @@ function mapCliOptionsToSDK(options = {}) {
   // Map setting sources for CLAUDE.md loading
   // This loads CLAUDE.md from project, user (~/.config/claude/CLAUDE.md), and local directories
   sdkOptions.settingSources = ['project', 'user', 'local'];
+
+  // Map effort level (low, medium, high)
+  if (options.effort) {
+    sdkOptions.effort = options.effort;
+  }
 
   // Map resume session
   if (sessionId) {
@@ -277,9 +286,10 @@ function transformMessage(sdkMessage) {
 /**
  * Extracts token usage from SDK result messages
  * @param {Object} resultMessage - SDK result message
+ * @param {number} lastTurnInputTokens - Input tokens from the most recent API turn (from message_start events)
  * @returns {Object|null} Token budget object or null
  */
-function extractTokenBudget(resultMessage) {
+function extractTokenBudget(resultMessage, lastTurnInputTokens = 0) {
   if (resultMessage.type !== 'result' || !resultMessage.modelUsage) {
     return null;
   }
@@ -292,21 +302,17 @@ function extractTokenBudget(resultMessage) {
     return null;
   }
 
-  // Use cumulative tokens if available (tracks total for the session)
-  // Otherwise fall back to per-request tokens
-  const inputTokens = modelData.cumulativeInputTokens || modelData.inputTokens || 0;
-  const outputTokens = modelData.cumulativeOutputTokens || modelData.outputTokens || 0;
-  const cacheReadTokens = modelData.cumulativeCacheReadInputTokens || modelData.cacheReadInputTokens || 0;
-  const cacheCreationTokens = modelData.cumulativeCacheCreationInputTokens || modelData.cacheCreationInputTokens || 0;
+  // Prefer per-turn input tokens (= actual current context size) over cumulative totals.
+  // The cumulative inputTokens from modelUsage sums ALL API calls in the session,
+  // which grows linearly with turns and doesn't reflect the actual context window usage.
+  const totalUsed = lastTurnInputTokens > 0
+    ? lastTurnInputTokens
+    : (modelData.inputTokens || 0) + (modelData.cacheReadInputTokens || 0) + (modelData.cacheCreationInputTokens || 0);
 
-  // Total used = input + output + cache tokens
-  const totalUsed = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
-
-  // Use configured context window budget from environment (default 160000)
-  // This is the user's budget limit, not the model's context window
-  const contextWindow = parseInt(process.env.CONTEXT_WINDOW) || 160000;
-
-  // Token calc logged via token-budget WS event
+  // Use the model's actual context window from SDK, fall back to env var / default
+  const contextWindow = modelData.contextWindow
+    || parseInt(process.env.CONTEXT_WINDOW)
+    || 200000;
 
   return {
     used: totalUsed,
@@ -621,9 +627,21 @@ async function queryClaudeSDK(command, options = {}, ws) {
       addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws);
     }
 
+    // Track the most recent API call's input tokens for accurate context window %
+    let lastTurnInputTokens = 0;
+
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
+      // Capture per-turn input tokens from message_start stream events.
+      // This gives the actual current context size (prompt tokens for this API call),
+      // unlike cumulative modelUsage which sums ALL calls in the session.
+      if (message.type === 'stream_event' && message.event?.type === 'message_start') {
+        const usage = message.event.message?.usage;
+        if (usage?.input_tokens > 0) {
+          lastTurnInputTokens = usage.input_tokens;
+        }
+      }
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
@@ -664,7 +682,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         if (models.length > 0) {
           // Model info available in result message
         }
-        const tokenBudgetData = extractTokenBudget(message);
+        const tokenBudgetData = extractTokenBudget(message, lastTurnInputTokens);
         if (tokenBudgetData) {
           ws.send(createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: tokenBudgetData, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
         }

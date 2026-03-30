@@ -1,33 +1,42 @@
 import { useState, useRef, useEffect } from 'react';
 import { Brain, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { thinkingModes } from '../../constants/thinkingModes';
+import { thinkingModes, claudeEffortModes } from '../../constants/thinkingModes';
 
 type ThinkingModeSelectorProps = {
   selectedMode: string;
   onModeChange: (modeId: string) => void;
   onClose?: () => void;
   className?: string;
+  provider?: string;
 };
 
-function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className = '' }: ThinkingModeSelectorProps) {
+function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className = '', provider }: ThinkingModeSelectorProps) {
   const { t } = useTranslation('chat');
+  const isClaudeProvider = provider === 'claude';
 
-  // Mapping from mode ID to translation key
+  // Mapping from mode ID to translation key (for non-Claude prefix modes)
   const modeKeyMap: Record<string, string> = {
     'think-hard': 'thinkHard',
     'think-harder': 'thinkHarder'
   };
-  // Create translated modes for display
-  const translatedModes = thinkingModes.map(mode => {
-    const modeKey = modeKeyMap[mode.id] || mode.id;
-    return {
-      ...mode,
-      name: t(`thinkingMode.modes.${modeKey}.name`),
-      description: t(`thinkingMode.modes.${modeKey}.description`),
-      prefix: t(`thinkingMode.modes.${modeKey}.prefix`)
-    };
-  });
+
+  // For Claude: use effort modes directly (no translation prefix needed)
+  // For others: use translated thinking modes
+  const modes = isClaudeProvider
+    ? claudeEffortModes.map(mode => ({
+        ...mode,
+        prefix: undefined as string | undefined,
+      }))
+    : thinkingModes.map(mode => {
+        const modeKey = modeKeyMap[mode.id] || mode.id;
+        return {
+          ...mode,
+          name: t(`thinkingMode.modes.${modeKey}.name`),
+          description: t(`thinkingMode.modes.${modeKey}.description`),
+          prefix: t(`thinkingMode.modes.${modeKey}.prefix`),
+        };
+      });
 
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -44,7 +53,7 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
-  const currentMode = translatedModes.find(mode => mode.id === selectedMode) || translatedModes[0];
+  const currentMode = modes.find(mode => mode.id === selectedMode) || modes[0];
   const IconComponent = currentMode.icon || Brain;
 
   return (
@@ -56,7 +65,10 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
             ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600'
             : 'bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-800'
           }`}
-        title={t('thinkingMode.buttonTitle', { mode: currentMode.name })}
+        title={isClaudeProvider
+          ? `Effort: ${currentMode.name}`
+          : t('thinkingMode.buttonTitle', { mode: currentMode.name })
+        }
       >
         <IconComponent className={`h-5 w-5 ${currentMode.color}`} />
       </button>
@@ -66,7 +78,7 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
           <div className="border-b border-gray-200 p-3 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                {t('thinkingMode.selector.title')}
+                {isClaudeProvider ? 'Effort Level' : t('thinkingMode.selector.title')}
               </h3>
               <button
                 onClick={() => {
@@ -79,12 +91,15 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
               </button>
             </div>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {t('thinkingMode.selector.description')}
+              {isClaudeProvider
+                ? 'Controls how much effort Claude puts into its response'
+                : t('thinkingMode.selector.description')
+              }
             </p>
           </div>
 
           <div className="py-1">
-            {translatedModes.map((mode) => {
+            {modes.map((mode) => {
               const ModeIcon = mode.icon;
               const isSelected = mode.id === selectedMode;
 
@@ -111,7 +126,7 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
                         </span>
                         {isSelected && (
                           <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                            {t('thinkingMode.selector.active')}
+                            {isClaudeProvider ? 'Active' : t('thinkingMode.selector.active')}
                           </span>
                         )}
                       </div>
@@ -132,7 +147,10 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
 
           <div className="border-t border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              <strong>Tip:</strong> {t('thinkingMode.selector.tip')}
+              <strong>Tip:</strong> {isClaudeProvider
+                ? 'Low is fastest, High gives the deepest reasoning'
+                : t('thinkingMode.selector.tip')
+              }
             </p>
           </div>
         </div>

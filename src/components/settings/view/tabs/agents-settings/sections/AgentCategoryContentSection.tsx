@@ -1,5 +1,6 @@
 import type { AgentCategoryContentSectionProps } from '../types';
 import AccountContent from './content/AccountContent';
+import DefaultsContent from './content/DefaultsContent';
 import McpServersContent from './content/McpServersContent';
 import PermissionsContent from './content/PermissionsContent';
 
@@ -38,6 +39,10 @@ export default function AgentCategoryContentSection({
           authStatus={agentContextById[selectedAgent].authStatus}
           onLogin={agentContextById[selectedAgent].onLogin}
         />
+      )}
+
+      {selectedCategory === 'defaults' && (
+        <DefaultsContent agent={selectedAgent} />
       )}
 
       {selectedCategory === 'permissions' && selectedAgent === 'claude' && (

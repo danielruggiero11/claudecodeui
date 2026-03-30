@@ -570,6 +570,63 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
     }
 });
 
+app.post('/api/system/restart', authenticateToken, async (req, res) => {
+    try {
+        const dishBaseUrl = process.env.DISH_API_URL || 'http://localhost:5000';
+        const dishSecret = process.env.DISH_SECRET || '';
+
+        console.log(`Requesting server restart via ${dishBaseUrl}/restart/execute`);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(`${dishBaseUrl}/restart/execute`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Caddy-Secret': dishSecret,
+            },
+            body: JSON.stringify({ script_name: 'restart_claudecodeui.ps1' }),
+            signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        let data;
+        const responseText = await response.text();
+        try {
+            data = JSON.parse(responseText);
+        } catch {
+            console.log(`Dish response (${response.status}): ${responseText.slice(0, 200)}`);
+            if (response.ok) {
+                res.json({ success: true, message: 'Restart initiated' });
+            } else {
+                res.status(response.status).json({ success: false, error: `Dish returned ${response.status}` });
+            }
+            return;
+        }
+
+        if (response.ok && data.success) {
+            console.log('Restart request successful');
+            res.json({ success: true, message: 'Restart initiated' });
+        } else {
+            console.error(`Restart request failed: ${response.status} - ${JSON.stringify(data)}`);
+            res.status(500).json({ success: false, error: data.error || data.message || 'Restart request failed' });
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.error('Restart request timed out');
+            res.status(504).json({ success: false, error: 'Request timed out' });
+        } else if (error.code === 'ECONNREFUSED') {
+            console.error(`Cannot connect to Dish API`);
+            res.status(503).json({ success: false, error: 'Cannot connect to Dish API' });
+        } else {
+            console.error(`Error requesting restart: ${error}`);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    }
+});
+
 app.get('/api/projects', authenticateToken, async (req, res) => {
     try {
         const projects = await getProjects(broadcastProgress, { includeHidden: true });
@@ -1712,6 +1769,25 @@ function handleChatConnection(ws, request) {
                 writer.send({
                     type: 'active-sessions',
                     sessions: activeSessions
+                });
+            } else if (data.type === 'reconnect-all-writers') {
+                // Reconnect all active Claude SDK sessions' writers to the new WebSocket.
+                // Called by frontend after WebSocket reconnection to ensure background
+                // sessions can still send output.
+                const claudeSessions = getActiveClaudeSDKSessions();
+                let reconnected = 0;
+                for (const sid of claudeSessions) {
+                    if (reconnectSessionWriter(sid, ws)) reconnected++;
+                }
+                console.log(`[RECONNECT-ALL] Reconnected ${reconnected}/${claudeSessions.length} Claude SDK writers`);
+                writer.send({
+                    type: 'reconnect-all-writers-response',
+                    activeSessions: {
+                        claude: claudeSessions,
+                        cursor: getActiveCursorSessions(),
+                        codex: getActiveCodexSessions(),
+                        gemini: getActiveGeminiSessions()
+                    }
                 });
             }
         } catch (error) {

@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 
 export type SettingsMainTab = 'agents' | 'appearance' | 'voice' | 'git' | 'api' | 'tasks' | 'notifications' | 'plugins' | 'archived';
 export type AgentProvider = 'claude' | 'cursor' | 'codex' | 'gemini';
-export type AgentCategory = 'account' | 'permissions' | 'mcp';
+export type AgentCategory = 'account' | 'defaults' | 'permissions' | 'mcp';
 export type ProjectSortOrder = 'name' | 'date';
 export type SaveStatus = 'success' | 'error' | null;
 export type CodexPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';

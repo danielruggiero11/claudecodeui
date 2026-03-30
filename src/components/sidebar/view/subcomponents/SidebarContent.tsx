@@ -1,10 +1,11 @@
 import { type ReactNode } from 'react';
-import { Folder, MessageSquare, Search } from 'lucide-react';
+import { Clock, Folder, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
-import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
+import type { ConversationSearchResults, RecentConversation, SearchProgress } from '../../hooks/useSidebarController';
+import { getSessionName, getSessionDate } from '../../utils/utils';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
@@ -35,6 +36,21 @@ function HighlightedSnippet({ snippet, highlights }: { snippet: string; highligh
   );
 }
 
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays}d ago`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths}mo ago`;
+  return `${Math.floor(diffMonths / 12)}y ago`;
+}
+
 type SidebarContentProps = {
   isPWA: boolean;
   isMobile: boolean;
@@ -45,6 +61,7 @@ type SidebarContentProps = {
   onClearSearchFilter: () => void;
   searchMode: SearchMode;
   onSearchModeChange: (mode: SearchMode) => void;
+  recentConversations: RecentConversation[];
   conversationResults: ConversationSearchResults | null;
   isSearching: boolean;
   searchProgress: SearchProgress | null;
@@ -72,6 +89,7 @@ export default function SidebarContent({
   onClearSearchFilter,
   searchMode,
   onSearchModeChange,
+  recentConversations,
   conversationResults,
   isSearching,
   searchProgress,
@@ -89,6 +107,7 @@ export default function SidebarContent({
   t,
 }: SidebarContentProps) {
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
+  const showRecentConversations = searchMode === 'conversations' && searchFilter.trim().length < 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
 
   return (
@@ -208,6 +227,62 @@ export default function SidebarContent({
               ))}
             </div>
           ) : null
+        ) : showRecentConversations ? (
+          recentConversations.length > 0 ? (
+            <div className="space-y-1 px-2">
+              <div className="flex items-center gap-1.5 px-1 pb-1">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t('search.recentConversations', 'Recent Conversations')}
+                </span>
+              </div>
+              {recentConversations.map((item) => {
+                const sessionDate = getSessionDate(item.session);
+                const sessionName = getSessionName(item.session, t);
+                return (
+                  <button
+                    key={`${item.projectName}-${item.session.id}`}
+                    className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
+                    onClick={() => onConversationResultClick(
+                      item.projectName,
+                      item.session.id,
+                      item.provider,
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <Folder className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {item.projectDisplayName}
+                        </span>
+                      </div>
+                      <span className="flex-shrink-0 text-[10px] text-muted-foreground/50">
+                        {formatRelativeTime(sessionDate)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5 pl-0.5">
+                      <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
+                      <span className="truncate text-xs font-medium text-foreground">
+                        {sessionName}
+                      </span>
+                      {item.provider !== 'claude' && (
+                        <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                          {item.provider}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-4 py-12 text-center md:py-8">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-muted md:mb-3">
+                <MessageSquare className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">{t('search.noConversations', 'No conversations yet')}</p>
+            </div>
+          )
         ) : (
           <SidebarProjectList {...projectListProps} />
         )}

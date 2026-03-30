@@ -14,6 +14,7 @@ import type {
 import {
   filterProjects,
   getAllSessions,
+  getSessionDate,
   loadStarredProjects,
   persistStarredProjects,
   readProjectSortOrder,
@@ -56,6 +57,13 @@ export type ConversationSearchResults = {
 export type SearchProgress = {
   scannedProjects: number;
   totalProjects: number;
+};
+
+export type RecentConversation = {
+  session: SessionWithProvider;
+  projectName: string;
+  projectDisplayName: string;
+  provider: SessionProvider;
 };
 
 type UseSidebarControllerArgs = {
@@ -348,6 +356,24 @@ export function useSidebarController({
     [searchFilter, sortedProjects],
   );
 
+  const recentConversations = useMemo<RecentConversation[]>(() => {
+    const all: RecentConversation[] = [];
+    for (const project of projects) {
+      if (project.hidden) continue;
+      const sessions = getAllSessions(project, additionalSessions);
+      for (const session of sessions) {
+        all.push({
+          session,
+          projectName: project.name,
+          projectDisplayName: project.displayName || project.name,
+          provider: (session.__provider || 'claude') as SessionProvider,
+        });
+      }
+    }
+    all.sort((a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime());
+    return all.slice(0, 50);
+  }, [projects, additionalSessions]);
+
   const startEditing = useCallback((project: Project) => {
     setEditingProject(project.name);
     setEditingName(project.displayName);
@@ -633,6 +659,7 @@ export function useSidebarController({
     setEditingSessionName,
     searchMode,
     setSearchMode,
+    recentConversations,
     conversationResults,
     isSearching,
     searchProgress,

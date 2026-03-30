@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { DarkModeToggle } from '../../../../shared/view/ui';
+import { RotateCw } from 'lucide-react';
+import { Button, DarkModeToggle } from '../../../../shared/view/ui';
 import type { CodeEditorSettingsState, ProjectSortOrder } from '../../types/types';
 import { getCachedSettings, updateSettingsPartial } from '../../../../utils/settingsSync';
+import { authenticatedFetch } from '../../../../utils/api';
 import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS } from '../../../../../shared/modelConstants';
 import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
 import SettingsCard from '../SettingsCard';
@@ -91,6 +94,72 @@ export default function AppearanceSettingsTab({
       return next;
     });
   }, []);
+
+  // Server restart state
+  const [restartPhase, setRestartPhase] = useState<'idle' | 'confirm' | 'calling' | 'countdown' | 'reconnecting'>('idle');
+  const [countdown, setCountdown] = useState(20);
+  const [restartError, setRestartError] = useState<string | null>(null);
+
+  // Auto-reset confirm after 5 seconds
+  useEffect(() => {
+    if (restartPhase === 'confirm') {
+      const timer = setTimeout(() => setRestartPhase('idle'), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [restartPhase]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (restartPhase !== 'countdown') return;
+    if (countdown <= 0) {
+      setRestartPhase('reconnecting');
+      return;
+    }
+    const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [restartPhase, countdown]);
+
+  // Reconnection polling
+  useEffect(() => {
+    if (restartPhase !== 'reconnecting') return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/health');
+        if (res.ok) {
+          clearInterval(interval);
+          window.location.href = '/';
+        }
+      } catch {
+        // Server not ready yet
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [restartPhase]);
+
+  const handleRestart = useCallback(async () => {
+    if (restartPhase === 'idle') {
+      setRestartPhase('confirm');
+      return;
+    }
+    if (restartPhase === 'confirm') {
+      setRestartPhase('calling');
+      setRestartError(null);
+      try {
+        const res = await authenticatedFetch('/api/system/restart', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          setCountdown(20);
+          setRestartPhase('countdown');
+        } else {
+          setRestartError(data.error || 'Restart failed');
+          setRestartPhase('idle');
+        }
+      } catch (err) {
+        setRestartError(err instanceof Error ? err.message : 'Request failed');
+        setRestartPhase('idle');
+      }
+    }
+  }, [restartPhase]);
 
   return (
     <div className="space-y-8">
@@ -329,6 +398,45 @@ export default function AppearanceSettingsTab({
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
+
+      <SettingsSection title="Server Management">
+        <SettingsCard>
+          <SettingsRow
+            label="Restart Server"
+            description="Rebuild and restart the application to apply updates"
+          >
+            <Button
+              variant={restartPhase === 'confirm' ? 'destructive' : 'outline'}
+              size="sm"
+              onClick={handleRestart}
+              disabled={restartPhase === 'calling' || restartPhase === 'countdown' || restartPhase === 'reconnecting'}
+              className="min-w-[130px]"
+            >
+              {restartPhase === 'calling' && <RotateCw className="mr-2 h-4 w-4 animate-spin" />}
+              {restartPhase === 'idle' && 'Restart'}
+              {restartPhase === 'confirm' && 'Confirm Restart'}
+              {restartPhase === 'calling' && 'Restarting...'}
+            </Button>
+          </SettingsRow>
+          {restartError && (
+            <p className="px-4 pb-3 text-xs text-destructive">{restartError}</p>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      {(restartPhase === 'countdown' || restartPhase === 'reconnecting') && createPortal(
+        <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/95 text-white">
+          <RotateCw className="mb-6 h-12 w-12 animate-spin opacity-60" />
+          <h2 className="mb-8 text-3xl font-bold">Server Restarting</h2>
+          <div className="font-mono text-[6rem] font-bold leading-none">
+            {restartPhase === 'countdown' ? countdown : '...'}
+          </div>
+          <p className="mt-8 text-lg opacity-80">
+            {restartPhase === 'countdown' ? 'Building and restarting...' : 'Reconnecting...'}
+          </p>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

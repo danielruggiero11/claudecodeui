@@ -62,6 +62,7 @@ function Sidebar({
     searchFilter,
     searchMode,
     setSearchMode,
+    recentConversations,
     conversationResults,
     isSearching,
     searchProgress,
@@ -235,6 +236,7 @@ function Sidebar({
               setSearchMode(mode);
               if (mode === 'projects') clearConversationResults();
             }}
+            recentConversations={recentConversations}
             conversationResults={conversationResults}
             isSearching={isSearching}
             searchProgress={searchProgress}

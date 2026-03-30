@@ -11,7 +11,7 @@ import type {
 } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { authenticatedFetch } from '../../../utils/api';
-import { thinkingModes } from '../constants/thinkingModes';
+import { thinkingModes, claudeEffortModes } from '../constants/thinkingModes';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type {
@@ -490,9 +490,20 @@ export function useChatComposerState({
       }
 
       let messageContent = currentInput;
-      const selectedThinkingMode = thinkingModes.find((mode: { id: string; prefix?: string }) => mode.id === thinkingMode);
-      if (selectedThinkingMode && selectedThinkingMode.prefix) {
-        messageContent = `${selectedThinkingMode.prefix}: ${currentInput}`;
+      let effortLevel: string | null = null;
+
+      if (provider === 'claude') {
+        // Claude Code: resolve effort level from claudeEffortModes (passed as SDK option)
+        const selectedEffort = claudeEffortModes.find(mode => mode.id === thinkingMode);
+        if (selectedEffort && selectedEffort.effort) {
+          effortLevel = selectedEffort.effort;
+        }
+      } else {
+        // Other providers: use text prefix approach
+        const selectedThinkingMode = thinkingModes.find((mode: { id: string; prefix?: string }) => mode.id === thinkingMode);
+        if (selectedThinkingMode && selectedThinkingMode.prefix) {
+          messageContent = `${selectedThinkingMode.prefix}: ${currentInput}`;
+        }
       }
 
       let uploadedImages: unknown[] = [];
@@ -652,6 +663,7 @@ export function useChatComposerState({
             model: claudeModel,
             sessionSummary,
             images: uploadedImages,
+            ...(effortLevel && { effort: effortLevel }),
           },
         });
       }

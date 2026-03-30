@@ -304,9 +304,12 @@ function ChatInterface({
     rawToggleVoiceRecording();
   }, [isVoiceRecording, rawToggleVoiceRecording, textareaRef, input.length]);
 
-  // On WebSocket reconnect, re-fetch the current session's messages from the server
-  // so missed streaming events are shown. Also reset isLoading.
+  // On WebSocket reconnect, reconnect all active session writers on the server
+  // and re-fetch the current session's messages so missed events are shown.
   const handleWebSocketReconnect = useCallback(async () => {
+    // Reconnect all active sessions' writers to the new WebSocket
+    sendMessage({ type: 'reconnect-all-writers' });
+
     if (!selectedProject || !selectedSession) return;
     const providerVal = (localStorage.getItem('selected-provider') as SessionProvider) || 'claude';
     await sessionStore.refreshFromServer(selectedSession.id, {
@@ -314,9 +317,13 @@ function ChatInterface({
       projectName: selectedProject.name,
       projectPath: selectedProject.fullPath || selectedProject.path || '',
     });
-    setIsLoading(false);
-    setCanAbortSession(false);
-  }, [selectedProject, selectedSession, sessionStore, setIsLoading, setCanAbortSession]);
+    // Let the check-session-status response set the correct loading state
+    sendMessage({
+      type: 'check-session-status',
+      sessionId: selectedSession.id,
+      provider: selectedSession.__provider || providerVal,
+    });
+  }, [selectedProject, selectedSession, sessionStore, sendMessage]);
 
   useChatRealtimeHandlers({
     latestMessage,

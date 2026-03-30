@@ -50,6 +50,7 @@ export interface PersistedSettings {
     codex: string;
     gemini: string;
   };
+  defaultEffort: string;
   enabledProviders: {
     claude: boolean;
     cursor: boolean;
@@ -176,6 +177,7 @@ function writeLegacyKeys(settings: PersistedSettings): void {
     if (settings.models.cursor) localStorage.setItem('cursor-model', settings.models.cursor);
     if (settings.models.codex) localStorage.setItem('codex-model', settings.models.codex);
     if (settings.models.gemini) localStorage.setItem('gemini-model', settings.models.gemini);
+    if (settings.defaultEffort) localStorage.setItem('claude-default-effort', settings.defaultEffort);
 
     // Code editor settings
     localStorage.setItem('codeEditorTheme', settings.codeEditor.theme);
@@ -272,6 +274,7 @@ export function buildSettingsFromLocalStorage(): Partial<PersistedSettings> {
     }),
     defaultTab: localStorage.getItem('defaultTab') || 'chat',
     mobileShowSidebarOnLaunch: localStorage.getItem('mobileShowSidebarOnLaunch') !== 'false',
+    defaultEffort: localStorage.getItem('claude-default-effort') || 'none',
     selectedProvider: localStorage.getItem('selected-provider') || 'claude',
     projectSortOrder: (claude.projectSortOrder as string) || 'name',
     theme: localStorage.getItem('theme') || 'dark',
