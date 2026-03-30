@@ -274,7 +274,7 @@ export function buildSettingsFromLocalStorage(): Partial<PersistedSettings> {
     }),
     defaultTab: localStorage.getItem('defaultTab') || 'chat',
     mobileShowSidebarOnLaunch: localStorage.getItem('mobileShowSidebarOnLaunch') !== 'false',
-    defaultEffort: localStorage.getItem('claude-default-effort') || 'none',
+    defaultEffort: localStorage.getItem('claude-default-effort') || 'high',
     selectedProvider: localStorage.getItem('selected-provider') || 'claude',
     projectSortOrder: (claude.projectSortOrder as string) || 'name',
     theme: localStorage.getItem('theme') || 'dark',

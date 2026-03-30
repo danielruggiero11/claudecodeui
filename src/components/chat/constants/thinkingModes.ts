@@ -47,14 +47,6 @@ export const thinkingModes = [
 // Claude Code SDK effort levels (passed as SDK option, not text prefix)
 export const claudeEffortModes = [
   {
-    id: 'none',
-    name: 'Standard',
-    description: 'Default effort level',
-    icon: null,
-    effort: null as string | null,
-    color: 'text-gray-600'
-  },
-  {
     id: 'low',
     name: 'Low',
     description: 'Minimal thinking, fastest responses',
@@ -79,3 +71,15 @@ export const claudeEffortModes = [
     color: 'text-purple-600'
   }
 ];
+
+// Get the saved default effort level for Claude
+export const getDefaultClaudeEffort = (): string => {
+  try {
+    const saved = localStorage.getItem('claude-default-effort');
+    // Migrate legacy 'none' value to 'high'
+    if (!saved || saved === 'none') return 'high';
+    return saved;
+  } catch {
+    return 'high';
+  }
+};

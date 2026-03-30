@@ -11,7 +11,7 @@ import type {
 } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { authenticatedFetch } from '../../../utils/api';
-import { thinkingModes, claudeEffortModes } from '../constants/thinkingModes';
+import { thinkingModes, claudeEffortModes, getDefaultClaudeEffort } from '../constants/thinkingModes';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type {
@@ -143,7 +143,9 @@ export function useChatComposerState({
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [thinkingMode, setThinkingMode] = useState('none');
+  const [thinkingMode, setThinkingMode] = useState(() =>
+    provider === 'claude' ? getDefaultClaudeEffort() : 'none'
+  );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -675,7 +677,7 @@ export function useChatComposerState({
       setUploadingImages(new Map());
       setImageErrors(new Map());
       setIsTextareaExpanded(false);
-      setThinkingMode('none');
+      setThinkingMode(provider === 'claude' ? getDefaultClaudeEffort() : 'none');
 
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -764,6 +766,11 @@ export function useChatComposerState({
     textareaRef.current.style.height = 'auto';
     setIsTextareaExpanded(false);
   }, [input]);
+
+  // Sync thinking mode when provider changes
+  useEffect(() => {
+    setThinkingMode(provider === 'claude' ? getDefaultClaudeEffort() : 'none');
+  }, [provider]);
 
   const handleInputChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {

@@ -26,7 +26,7 @@ export default function DefaultsContent({ agent }: DefaultsContentProps) {
 
   const [defaultEffort, setDefaultEffort] = useState(() => {
     const cached = getCachedSettings();
-    return cached?.defaultEffort || localStorage.getItem('claude-default-effort') || 'none';
+    return cached?.defaultEffort || localStorage.getItem('claude-default-effort') || 'high';
   });
 
   const handleModelChange = useCallback((model: string) => {
@@ -77,7 +77,7 @@ export default function DefaultsContent({ agent }: DefaultsContentProps) {
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-foreground">Default Effort</div>
               <div className="mt-0.5 text-sm text-muted-foreground">
-                Controls how much reasoning Claude uses. Standard uses the SDK default (high).
+                Controls how much reasoning Claude uses for new messages
               </div>
             </div>
             <div className="flex-shrink-0">
@@ -88,7 +88,7 @@ export default function DefaultsContent({ agent }: DefaultsContentProps) {
               >
                 {claudeEffortModes.map((mode) => (
                   <option key={mode.id} value={mode.id}>
-                    {mode.name}{mode.id === 'none' ? ' (SDK default: high)' : ''}
+                    {mode.name}{mode.id === 'high' ? ' (default)' : ''}
                   </option>
                 ))}
               </select>

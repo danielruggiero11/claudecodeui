@@ -130,7 +130,7 @@ export default function SidebarProjectSessions({
         </Button>
       )}
 
-      <div className="px-3 pb-2 md:hidden">
+      <div className="px-3 pb-2">
         <button
           className="flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-all duration-150 hover:bg-primary/90 active:scale-[0.98]"
           onClick={() => {
@@ -142,16 +142,6 @@ export default function SidebarProjectSessions({
           {t('sessions.newSession')}
         </button>
       </div>
-
-      <Button
-        variant="default"
-        size="sm"
-        className="mt-1 hidden h-8 w-full justify-start gap-2 bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 md:flex"
-        onClick={() => onNewSession(project)}
-      >
-        <Plus className="h-3 w-3" />
-        {t('sessions.newSession')}
-      </Button>
     </div>
   );
 }

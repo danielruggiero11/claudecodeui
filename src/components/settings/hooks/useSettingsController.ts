@@ -823,6 +823,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
         theme: cached?.theme || localStorage.getItem('theme') || 'dark',
         userLanguage: cached?.userLanguage || localStorage.getItem('userLanguage') || 'en',
         voiceSettings: cached?.voiceSettings || {},
+        defaultEffort: cached?.defaultEffort || localStorage.getItem('claude-default-effort') || 'high',
         starredProjects: cached?.starredProjects || [],
         _version: 1,
         _migratedAt: cached?._migratedAt || new Date().toISOString(),
