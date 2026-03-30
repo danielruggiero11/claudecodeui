@@ -41,6 +41,38 @@ export interface ToolDisplayConfig {
   };
 }
 
+/**
+ * Extract file count and filenames from a search tool result.
+ * Prefers structured toolUseResult (available when loading history from JSONL),
+ * falls back to parsing the content string (available during streaming).
+ */
+function parseSearchResult(result: any): { count: number; files: string[] } {
+  const toolData = result?.toolUseResult;
+  if (toolData?.numFiles !== undefined || toolData?.filenames?.length) {
+    const files = toolData.filenames || [];
+    return { count: toolData.numFiles ?? files.length, files };
+  }
+
+  // Fallback: parse the content string (e.g. "Found 3 files\nfoo.ts\nbar.ts\nbaz.ts")
+  const content = typeof result?.content === 'string' ? result.content : '';
+  if (!content) return { count: 0, files: [] };
+
+  const lines = content.split('\n').filter((l: string) => l.trim());
+
+  // Check for "Found N files" / "No files found" header
+  const headerMatch = lines[0]?.match(/^Found (\d+) files?$/i);
+  if (headerMatch) {
+    const files = lines.slice(1);
+    return { count: parseInt(headerMatch[1], 10), files };
+  }
+  if (/^No (files|matches) found/i.test(lines[0] || '')) {
+    return { count: 0, files: [] };
+  }
+
+  // No header — treat all non-empty lines as filenames
+  return { count: lines.length, files: lines };
+}
+
 export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
   // ============================================================================
   // COMMAND TOOLS
@@ -183,16 +215,13 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
       type: 'collapsible',
       defaultOpen: false,
       title: (result) => {
-        const toolData = result.toolUseResult || {};
-        const count = toolData.numFiles || toolData.filenames?.length || 0;
+        const { count } = parseSearchResult(result);
         return `Found ${count} ${count === 1 ? 'file' : 'files'}`;
       },
       contentType: 'file-list',
       getContentProps: (result) => {
-        const toolData = result.toolUseResult || {};
-        return {
-          files: toolData.filenames || []
-        };
+        const { files } = parseSearchResult(result);
+        return { files };
       }
     }
   },
@@ -216,16 +245,13 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
       type: 'collapsible',
       defaultOpen: false,
       title: (result) => {
-        const toolData = result.toolUseResult || {};
-        const count = toolData.numFiles || toolData.filenames?.length || 0;
+        const { count } = parseSearchResult(result);
         return `Found ${count} ${count === 1 ? 'file' : 'files'}`;
       },
       contentType: 'file-list',
       getContentProps: (result) => {
-        const toolData = result.toolUseResult || {};
-        return {
-          files: toolData.filenames || []
-        };
+        const { files } = parseSearchResult(result);
+        return { files };
       }
     }
   },
