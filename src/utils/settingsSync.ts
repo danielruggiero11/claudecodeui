@@ -64,6 +64,7 @@ export interface PersistedSettings {
   theme: string;
   userLanguage: string;
   voiceSettings: Record<string, unknown>;
+  gitAutoStageAll: boolean;
   starredProjects: string[];
   _version: number;
   _migratedAt?: string;
@@ -201,6 +202,7 @@ function writeLegacyKeys(settings: PersistedSettings): void {
     if (settings.voiceSettings && Object.keys(settings.voiceSettings).length > 0) {
       localStorage.setItem('voice-settings', JSON.stringify(settings.voiceSettings));
     }
+    localStorage.setItem('gitAutoStageAll', String(settings.gitAutoStageAll ?? false));
     localStorage.setItem('starredProjects', JSON.stringify(settings.starredProjects));
   } catch {
     // Best-effort — localStorage might be full
@@ -279,6 +281,7 @@ export function buildSettingsFromLocalStorage(): Partial<PersistedSettings> {
     projectSortOrder: (claude.projectSortOrder as string) || 'name',
     theme: localStorage.getItem('theme') || 'dark',
     userLanguage: localStorage.getItem('userLanguage') || 'en',
+    gitAutoStageAll: localStorage.getItem('gitAutoStageAll') === 'true',
     voiceSettings,
     starredProjects,
     _version: 1,

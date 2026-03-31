@@ -4,8 +4,10 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, SessionProvider } from '../../../../types/app';
 import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
 import { getTaskIndicatorStatus } from '../../utils/utils';
+import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
 import TaskIndicator from './TaskIndicator';
 import SidebarProjectSessions from './SidebarProjectSessions';
+import TypingDots from './TypingDots';
 
 type SidebarProjectItemProps = {
   project: Project;
@@ -103,6 +105,8 @@ export default function SidebarProjectItem({
   const sessionCountDisplay = getSessionCountDisplay(sessions, hasMoreSessions);
   const sessionCountLabel = `${sessionCountDisplay} session${sessions.length === 1 ? '' : 's'}`;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
+  const { getProjectStatus } = useSessionStatus();
+  const projectStatus = getProjectStatus(sessions.map(s => s.id));
 
   const toggleProject = () => onToggleProject(project.name);
   const toggleStarProject = () => onToggleStarProject(project.name);
@@ -135,14 +139,23 @@ export default function SidebarProjectItem({
             <div className="flex items-center gap-2" onClick={toggleProject}>
               <div
                 className={cn(
-                  'w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
+                  'w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors relative',
+                  projectStatus.respondingCount > 0 ? 'bg-primary/10' :
+                  projectStatus.responseReadyCount > 0 ? 'bg-primary/10' :
                   isExpanded ? 'bg-primary/10' : 'bg-muted',
                 )}
               >
-                {isExpanded ? (
+                {projectStatus.respondingCount > 0 ? (
+                  <TypingDots />
+                ) : isExpanded ? (
                   <FolderOpen className="h-3.5 w-3.5 text-primary" />
                 ) : (
                   <Folder className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+                {projectStatus.responseReadyCount > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground">
+                    {projectStatus.responseReadyCount}
+                  </span>
                 )}
               </div>
 

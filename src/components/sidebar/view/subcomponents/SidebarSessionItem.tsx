@@ -6,7 +6,9 @@ import { formatTimeAgo } from '../../../../utils/dateUtils';
 import type { Project, ProjectSession, SessionProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel } from '../../utils/utils';
+import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
+import TypingDots from './TypingDots';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -46,7 +48,9 @@ export default function SidebarSessionItem({
   onDeleteSession,
   t,
 }: SidebarSessionItemProps) {
-  const sessionView = createSessionViewModel(session, currentTime, t);
+  const { getSessionLiveStatus } = useSessionStatus();
+  const liveStatus = getSessionLiveStatus(session.id);
+  const sessionView = createSessionViewModel(session, currentTime, t, liveStatus);
   const isSelected = selectedSession?.id === session.id;
 
   const selectMobileSession = () => {
@@ -64,9 +68,14 @@ export default function SidebarSessionItem({
 
   return (
     <div className="group relative">
-      {sessionView.isActive && (
+      {liveStatus === 'responding' && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+          <TypingDots className="scale-75" />
+        </div>
+      )}
+      {liveStatus === 'response-ready' && (
+        <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
+          <div className="h-2.5 w-2.5 rounded-full bg-primary" />
         </div>
       )}
 
@@ -75,9 +84,11 @@ export default function SidebarSessionItem({
           className={cn(
             'p-2 mx-3 my-0.5 rounded-md bg-card border active:scale-[0.98] transition-all duration-150 relative',
             isSelected ? 'bg-primary/5 border-primary/20' : '',
-            !isSelected && sessionView.isActive
-              ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
-              : 'border-border/30',
+            !isSelected && liveStatus === 'responding'
+              ? 'border-primary/30 bg-primary/5'
+              : !isSelected && liveStatus === 'response-ready'
+                ? 'border-primary/20 bg-primary/3'
+                : 'border-border/30',
           )}
           onClick={selectMobileSession}
         >
@@ -92,7 +103,10 @@ export default function SidebarSessionItem({
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-foreground">{sessionView.sessionName}</div>
+              <div className={cn(
+                'truncate text-xs text-foreground',
+                liveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
+              )}>{sessionView.sessionName}</div>
               <div className="mt-0.5 flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">
@@ -136,7 +150,10 @@ export default function SidebarSessionItem({
           <div className="flex w-full min-w-0 items-start gap-2">
             <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-foreground">{sessionView.sessionName}</div>
+              <div className={cn(
+                'truncate text-xs text-foreground',
+                liveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
+              )}>{sessionView.sessionName}</div>
               <div className="mt-0.5 flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">

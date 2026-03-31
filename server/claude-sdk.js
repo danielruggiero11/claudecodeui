@@ -26,6 +26,7 @@ import {
 } from './services/notification-orchestrator.js';
 import { claudeAdapter } from './providers/claude/adapter.js';
 import { createNormalizedMessage } from './providers/types.js';
+import { emitSessionStatus } from './services/session-events.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -240,6 +241,7 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
     tempDir,
     writer
   });
+  emitSessionStatus(sessionId, 'claude', 'active');
 }
 
 /**
@@ -247,7 +249,10 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
  * @param {string} sessionId - Session identifier
  */
 function removeSession(sessionId) {
+  const session = activeSessions.get(sessionId);
   activeSessions.delete(sessionId);
+  const status = session?.status === 'aborted' ? 'error' : 'completed';
+  emitSessionStatus(sessionId, 'claude', status);
 }
 
 /**

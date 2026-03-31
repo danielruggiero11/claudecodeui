@@ -40,11 +40,19 @@ export type SidebarProps = {
   isMobile: boolean;
 };
 
+export type SessionLiveStatus = 'responding' | 'response-ready' | 'idle';
+
+export type ProjectLiveStatus = {
+  respondingCount: number;
+  responseReadyCount: number;
+};
+
 export type SessionViewModel = {
   isCursorSession: boolean;
   isCodexSession: boolean;
   isGeminiSession: boolean;
   isActive: boolean;
+  liveStatus: SessionLiveStatus;
   sessionName: string;
   sessionTime: string;
   messageCount: number;

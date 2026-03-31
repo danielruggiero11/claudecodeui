@@ -1,9 +1,12 @@
 import { Check } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGitSettings } from '../../../hooks/useGitSettings';
+import { getCachedSettings, updateSettingsPartial } from '../../../../../utils/settingsSync';
 import { Button, Input } from '../../../../../shared/view/ui';
 import SettingsCard from '../../SettingsCard';
 import SettingsSection from '../../SettingsSection';
+import SettingsToggle from '../../SettingsToggle';
 
 export default function GitSettingsTab() {
   const { t } = useTranslation('settings');
@@ -17,6 +20,17 @@ export default function GitSettingsTab() {
     saveStatus,
     saveGitConfig,
   } = useGitSettings();
+
+  const [autoStageAll, setAutoStageAll] = useState(() => {
+    const cached = getCachedSettings();
+    return cached?.gitAutoStageAll ?? localStorage.getItem('gitAutoStageAll') === 'true';
+  });
+
+  const handleAutoStageToggle = useCallback((value: boolean) => {
+    setAutoStageAll(value);
+    localStorage.setItem('gitAutoStageAll', String(value));
+    updateSettingsPartial({ gitAutoStageAll: value }).catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -73,6 +87,25 @@ export default function GitSettingsTab() {
                 </div>
               )}
             </div>
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection
+        title={t('git.staging.title')}
+        description={t('git.staging.description')}
+      >
+        <SettingsCard className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">{t('git.staging.autoStageLabel')}</p>
+              <p className="text-xs text-muted-foreground">{t('git.staging.autoStageHelp')}</p>
+            </div>
+            <SettingsToggle
+              checked={autoStageAll}
+              onChange={handleAutoStageToggle}
+              ariaLabel={t('git.staging.autoStageLabel')}
+            />
           </div>
         </SettingsCard>
       </SettingsSection>

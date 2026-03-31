@@ -17,6 +17,7 @@ import { Codex } from '@openai/codex-sdk';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { codexAdapter } from './providers/codex/adapter.js';
 import { createNormalizedMessage } from './providers/types.js';
+import { emitSessionStatus } from './services/session-events.js';
 
 // Track active sessions
 const activeCodexSessions = new Map();
@@ -241,6 +242,7 @@ export async function queryCodex(command, options = {}, ws) {
       abortController,
       startedAt: new Date().toISOString()
     });
+    emitSessionStatus(currentSessionId, 'codex', 'active');
 
     // Send session created event
     sendMessage(ws, createNormalizedMessage({ kind: 'session_created', newSessionId: currentSessionId, sessionId: currentSessionId, provider: 'codex' }));
@@ -326,6 +328,7 @@ export async function queryCodex(command, options = {}, ws) {
       const session = activeCodexSessions.get(currentSessionId);
       if (session) {
         session.status = session.status === 'aborted' ? 'aborted' : 'completed';
+        emitSessionStatus(currentSessionId, 'codex', session.status === 'aborted' ? 'error' : 'completed');
       }
     }
   }

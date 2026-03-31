@@ -2,13 +2,16 @@ import { type ReactNode } from 'react';
 import { Clock, Folder, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
+import { cn } from '../../../../lib/utils';
 import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, RecentConversation, SearchProgress } from '../../hooks/useSidebarController';
 import { getSessionName, getSessionDate } from '../../utils/utils';
+import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
+import TypingDots from './TypingDots';
 
 type SearchMode = 'projects' | 'conversations';
 
@@ -106,6 +109,7 @@ export default function SidebarContent({
   projectListProps,
   t,
 }: SidebarContentProps) {
+  const { statusMap } = useSessionStatus();
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const showRecentConversations = searchMode === 'conversations' && searchFilter.trim().length < 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
@@ -239,10 +243,11 @@ export default function SidebarContent({
               {recentConversations.map((item) => {
                 const sessionDate = getSessionDate(item.session);
                 const sessionName = getSessionName(item.session, t);
+                const sessionLiveStatus = statusMap[item.session.id]?.status || 'idle';
                 return (
                   <button
                     key={`${item.projectName}-${item.session.id}`}
-                    className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
+                    className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50 relative"
                     onClick={() => onConversationResultClick(
                       item.projectName,
                       item.session.id,
@@ -256,13 +261,22 @@ export default function SidebarContent({
                           {item.projectDisplayName}
                         </span>
                       </div>
-                      <span className="flex-shrink-0 text-[10px] text-muted-foreground/50">
-                        {formatRelativeTime(sessionDate)}
-                      </span>
+                      <div className="flex flex-shrink-0 items-center gap-1.5">
+                        {sessionLiveStatus === 'responding' && <TypingDots className="scale-75" />}
+                        {sessionLiveStatus === 'response-ready' && (
+                          <div className="h-2 w-2 rounded-full bg-primary" />
+                        )}
+                        <span className="text-[10px] text-muted-foreground/50">
+                          {formatRelativeTime(sessionDate)}
+                        </span>
+                      </div>
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5 pl-0.5">
                       <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
-                      <span className="truncate text-xs font-medium text-foreground">
+                      <span className={cn(
+                        'truncate text-xs text-foreground',
+                        sessionLiveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
+                      )}>
                         {sessionName}
                       </span>
                       {item.provider !== 'claude' && (

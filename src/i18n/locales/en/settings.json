@@ -239,6 +239,12 @@
     },
     "status": {
       "success": "Saved successfully"
+    },
+    "staging": {
+      "title": "Staging Behavior",
+      "description": "Control how changed files are staged by default",
+      "autoStageLabel": "Auto-stage all changed files",
+      "autoStageHelp": "When enabled, all changed files are automatically staged (like GitHub Desktop). When disabled, files start unstaged."
     }
   },
   "apiKeys": {

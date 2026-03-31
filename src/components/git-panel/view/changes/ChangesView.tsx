@@ -2,6 +2,7 @@ import { GitBranch, GitCommit, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConfirmationRequest, FileStatusCode, GitDiffMap, GitStatusResponse } from '../../types/types';
 import { getAllChangedFiles, hasChangedFiles } from '../../utils/gitPanelUtils';
+import { getCachedSettings } from '../../../../utils/settingsSync';
 import CommitComposer from './CommitComposer';
 import FileChangeList from './FileChangeList';
 import FileStatusLegend from './FileStatusLegend';
@@ -55,12 +56,20 @@ export default function ChangesView({
       return;
     }
 
-    // Remove any selected files that no longer exist in the status
-    setSelectedFiles((prev) => {
-      const allFiles = new Set(getAllChangedFiles(gitStatus));
-      const next = new Set([...prev].filter((f) => allFiles.has(f)));
-      return next;
-    });
+    const allFiles = getAllChangedFiles(gitStatus);
+    const autoStage = getCachedSettings()?.gitAutoStageAll ?? false;
+
+    if (autoStage) {
+      // Auto-stage: select all changed files, including any new ones
+      setSelectedFiles(new Set(allFiles));
+    } else {
+      // Remove any selected files that no longer exist in the status
+      setSelectedFiles((prev) => {
+        const allSet = new Set(allFiles);
+        const next = new Set([...prev].filter((f) => allSet.has(f)));
+        return next;
+      });
+    }
   }, [gitStatus]);
 
   useEffect(() => {

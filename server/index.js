@@ -49,6 +49,7 @@ import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getAct
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
 import { spawnGemini, abortGeminiSession, isGeminiSessionActive, getActiveGeminiSessions } from './gemini-cli.js';
+import { onSessionStatus } from './services/session-events.js';
 import sessionManager from './sessionManager.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -119,6 +120,24 @@ function broadcastProgress(progress) {
         console.error('[ERROR] broadcastProgress failed:', error.message);
     }
 }
+
+// Broadcast session lifecycle events to all connected WebSocket clients
+onSessionStatus((event) => {
+    try {
+        const message = JSON.stringify({ type: 'session-lifecycle', ...event });
+        connectedClients.forEach(client => {
+            try {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(message);
+                }
+            } catch (err) {
+                // ignore individual client errors
+            }
+        });
+    } catch (err) {
+        console.error('[ERROR] broadcastSessionStatus failed:', err.message);
+    }
+});
 
 // Setup file system watchers for Claude, Cursor, and Codex project/session folders
 async function setupProjectsWatcher() {

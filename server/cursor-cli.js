@@ -3,6 +3,7 @@ import crossSpawn from 'cross-spawn';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { cursorAdapter } from './providers/cursor/adapter.js';
 import { createNormalizedMessage } from './providers/types.js';
+import { emitSessionStatus } from './services/session-events.js';
 
 // Use cross-spawn on Windows for better command execution
 const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
@@ -129,6 +130,7 @@ async function spawnCursor(command, options = {}, ws) {
       });
 
       activeCursorProcesses.set(processKey, cursorProcess);
+      emitSessionStatus(processKey, 'cursor', 'active');
 
       const shouldSuppressForTrustRetry = (text) => {
         if (hasRetriedWithTrust || args.includes('--trust')) {
@@ -162,8 +164,10 @@ async function spawnCursor(command, options = {}, ws) {
 
                   // Update process key with captured session ID
                   if (processKey !== capturedSessionId) {
+                    emitSessionStatus(processKey, 'cursor', 'completed');
                     activeCursorProcesses.delete(processKey);
                     activeCursorProcesses.set(capturedSessionId, cursorProcess);
+                    emitSessionStatus(capturedSessionId, 'cursor', 'active');
                   }
 
                   // Set session ID on writer (for API endpoint compatibility)
@@ -257,6 +261,7 @@ async function spawnCursor(command, options = {}, ws) {
 
         const finalSessionId = capturedSessionId || sessionId || processKey;
         activeCursorProcesses.delete(finalSessionId);
+        emitSessionStatus(finalSessionId, 'cursor', code === 0 ? 'completed' : 'error');
 
         // Flush any final unterminated stdout line before completion handling.
         if (stdoutLineBuffer.trim()) {
@@ -293,6 +298,7 @@ async function spawnCursor(command, options = {}, ws) {
         // Clean up process reference on error
         const finalSessionId = capturedSessionId || sessionId || processKey;
         activeCursorProcesses.delete(finalSessionId);
+        emitSessionStatus(finalSessionId, 'cursor', 'error');
 
         ws.send(createNormalizedMessage({ kind: 'error', content: error.message, sessionId: capturedSessionId || sessionId || null, provider: 'cursor' }));
         notifyTerminalState({ error });
@@ -314,6 +320,7 @@ function abortCursorSession(sessionId) {
     console.log(`Aborting Cursor session: ${sessionId}`);
     process.kill('SIGTERM');
     activeCursorProcesses.delete(sessionId);
+    emitSessionStatus(sessionId, 'cursor', 'completed');
     return true;
   }
   return false;

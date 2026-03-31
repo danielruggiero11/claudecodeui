@@ -10,6 +10,7 @@ import sessionManager from './sessionManager.js';
 import GeminiResponseHandler from './gemini-response-handler.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { createNormalizedMessage } from './providers/types.js';
+import { emitSessionStatus } from './services/session-events.js';
 
 let activeGeminiProcesses = new Map(); // Track active processes by session ID
 
@@ -211,6 +212,7 @@ async function spawnGemini(command, options = {}, ws) {
         // Store process reference for potential abort
         const processKey = capturedSessionId || sessionId || Date.now().toString();
         activeGeminiProcesses.set(processKey, geminiProcess);
+        emitSessionStatus(processKey, 'gemini', 'active');
 
         // Store sessionId on the process object for debugging
         geminiProcess.sessionId = processKey;
@@ -306,8 +308,10 @@ async function spawnGemini(command, options = {}, ws) {
 
                 // Update process key with captured session ID
                 if (processKey !== capturedSessionId) {
+                    emitSessionStatus(processKey, 'gemini', 'completed');
                     activeGeminiProcesses.delete(processKey);
                     activeGeminiProcesses.set(capturedSessionId, geminiProcess);
+                    emitSessionStatus(capturedSessionId, 'gemini', 'active');
                 }
 
                 ws.setSessionId && typeof ws.setSessionId === 'function' && ws.setSessionId(capturedSessionId);
@@ -358,6 +362,7 @@ async function spawnGemini(command, options = {}, ws) {
             // Clean up process reference
             const finalSessionId = capturedSessionId || sessionId || processKey;
             activeGeminiProcesses.delete(finalSessionId);
+            emitSessionStatus(finalSessionId, 'gemini', code === 0 ? 'completed' : 'error');
 
             // Save assistant response to session if we have one
             if (finalSessionId && assistantBlocks.length > 0) {
@@ -393,6 +398,7 @@ async function spawnGemini(command, options = {}, ws) {
             // Clean up process reference on error
             const finalSessionId = capturedSessionId || sessionId || processKey;
             activeGeminiProcesses.delete(finalSessionId);
+            emitSessionStatus(finalSessionId, 'gemini', 'error');
 
             const errorSessionId = typeof ws.getSessionId === 'function' ? ws.getSessionId() : finalSessionId;
             ws.send(createNormalizedMessage({ kind: 'error', content: error.message, sessionId: errorSessionId, provider: 'gemini' }));

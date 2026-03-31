@@ -824,6 +824,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
         userLanguage: cached?.userLanguage || localStorage.getItem('userLanguage') || 'en',
         voiceSettings: cached?.voiceSettings || {},
         defaultEffort: cached?.defaultEffort || localStorage.getItem('claude-default-effort') || 'high',
+        gitAutoStageAll: cached?.gitAutoStageAll ?? false,
         starredProjects: cached?.starredProjects || [],
         _version: 1,
         _migratedAt: cached?._migratedAt || new Date().toISOString(),

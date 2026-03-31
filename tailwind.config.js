@@ -58,6 +58,15 @@ export default {
         'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',
         'mobile-nav': 'var(--mobile-nav-total)',
       },
+      keyframes: {
+        'typing-dot': {
+          '0%, 60%, 100%': { opacity: '0.3', transform: 'translateY(0)' },
+          '30%': { opacity: '1', transform: 'translateY(-2px)' },
+        },
+      },
+      animation: {
+        'typing-dot': 'typing-dot 1.4s infinite ease-in-out',
+      },
     },
   },
   plugins: [require('@tailwindcss/typography')],

@@ -4,6 +4,7 @@ import { getCachedSettings, updateSettingsPartial } from '../../../utils/setting
 import type {
   AdditionalSessionsByProject,
   ProjectSortOrder,
+  SessionLiveStatus,
   SettingsProject,
   SessionViewModel,
   SessionWithProvider,
@@ -91,15 +92,18 @@ export const createSessionViewModel = (
   session: SessionWithProvider,
   currentTime: Date,
   t: TFunction,
+  liveStatus?: SessionLiveStatus,
 ): SessionViewModel => {
   const sessionDate = getSessionDate(session);
   const diffInMinutes = Math.floor((currentTime.getTime() - sessionDate.getTime()) / (1000 * 60));
+  const resolvedLiveStatus = liveStatus || 'idle';
 
   return {
     isCursorSession: session.__provider === 'cursor',
     isCodexSession: session.__provider === 'codex',
     isGeminiSession: session.__provider === 'gemini',
-    isActive: diffInMinutes < 10,
+    isActive: resolvedLiveStatus === 'responding' || diffInMinutes < 10,
+    liveStatus: resolvedLiveStatus,
     sessionName: getSessionName(session, t),
     sessionTime: getSessionTime(session),
     messageCount: Number(session.messageCount || 0),

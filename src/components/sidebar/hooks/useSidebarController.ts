@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import type { TFunction } from 'i18next';
 import { api } from '../../../utils/api';
+import { useSessionStatus } from '../../../contexts/SessionStatusContext';
 import type { Project, ProjectSession, SessionProvider } from '../../../types/app';
 import type {
   AdditionalSessionsByProject,
@@ -99,6 +100,7 @@ export function useSidebarController({
   setSidebarVisible,
   sidebarVisible,
 }: UseSidebarControllerArgs) {
+  const { markSessionSeen } = useSessionStatus();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -301,9 +303,10 @@ export function useSidebarController({
 
   const handleSessionClick = useCallback(
     (session: SessionWithProvider, projectName: string) => {
+      markSessionSeen(session.id);
       onSessionSelect({ ...session, __projectName: projectName });
     },
-    [onSessionSelect],
+    [onSessionSelect, markSessionSeen],
   );
 
   const toggleStarProject = useCallback((projectName: string) => {
