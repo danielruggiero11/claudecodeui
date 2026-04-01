@@ -1,52 +1,25 @@
 import re
-from patchright.sync_api import sync_playwright
 
-EXISTING_PROFILE_PATH = r"C:\Users\druggiero11\AppData\Local\WalmartPatchrightBot\chrome_profile"
-TARGET_URL = "https://claude.ai/settings/usage"
-
-def grab_usage_by_labels():
-    with sync_playwright() as p:
-        try:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=EXISTING_PROFILE_PATH,
-                headless=False, # Keep False until you're sure the labels work
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            )
-
-            page = context.pages[0]
-            page.goto(TARGET_URL)
-
-            # 1. Wait for the word 'spent' to appear anywhere on the page
-            # 'i' flag makes it case-insensitive
-            spent_element = page.locator("text=/spent/i").first
-            spent_element.wait_for(timeout=15000)
-            raw_spent_text = spent_element.inner_text()
-
-            # 2. Look for the 'reset' text
-            reset_element = page.locator("text=/resets/i").first
-            raw_reset_text = reset_element.inner_text()
-
-            # --- Extraction Logic ---
-            # Extract all dollar amounts (e.g., ['975.74', '1,000.00'])
-            amounts = re.findall(r"[\d,.]+", raw_spent_text)
-            spent_val = amounts[0] if len(amounts) > 0 else "Error"
-            total_val = amounts[1] if len(amounts) > 1 else "Error"
-
-            # Extract the date after the word 'Resets'
-            # This split handles "Spend limit · Resets Apr 1"
-            reset_date = raw_reset_text.split("Resets")[-1].strip()
-
-            print(f"\nSUCCESSFUL GRAB:")
-            print(f"---------------------------")
-            print(f"Status: {spent_val} / {total_val}")
-            print(f"Reset Date: {reset_date}")
-            print(f"---------------------------\n")
-
-        except Exception as e:
-            print(f"Failed to find labels: {e}")
-        finally:
-            if 'context' in locals():
-                context.close()
-
-if __name__ == "__main__":
-    grab_usage_by_labels()
+def get_live_claude_usage():
+    global claude_page
+    try:
+        # Step 1: Refresh the existing tab
+        claude_page.reload(wait_until="networkidle")
+        
+        # Step 2: Wait for the specific data
+        claude_page.wait_for_selector("text=/spent/i", timeout=10000)
+        
+        # Step 3: Extract
+        text = claude_page.locator("text=/spent/i").first.inner_text()
+        reset_text = claude_page.locator("text=/resets/i").first.inner_text()
+        
+        # Step 4: Parse
+        amounts = re.findall(r"[\d,.]+", text)
+        return {
+            "spent": amounts[0] if len(amounts) > 0 else "0",
+            "total": amounts[1] if len(amounts) > 1 else "0",
+            "reset": reset_text.split("Resets")[-1].strip()
+        }
+    except Exception as e:
+        print(f"Scrape failed: {e}")
+        return None

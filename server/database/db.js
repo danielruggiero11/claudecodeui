@@ -527,6 +527,7 @@ const DEFAULT_USER_SETTINGS = {
   userLanguage: 'en',
   voiceSettings: {},
   starredProjects: [],
+  claudeUsage: { enabled: false, chromeProfilePath: '' },
   _version: 1,
 };
 

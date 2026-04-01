@@ -66,6 +66,10 @@ export interface PersistedSettings {
   voiceSettings: Record<string, unknown>;
   gitAutoStageAll: boolean;
   starredProjects: string[];
+  claudeUsage?: {
+    enabled: boolean;
+    chromeProfilePath: string;
+  };
   _version: number;
   _migratedAt?: string;
 }

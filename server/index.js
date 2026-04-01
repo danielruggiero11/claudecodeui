@@ -69,7 +69,8 @@ import pluginsRoutes from './routes/plugins.js';
 import messagesRoutes from './routes/messages.js';
 import { createNormalizedMessage } from './providers/types.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
-import { initializeDatabase, sessionNamesDb, applyCustomSessionNames } from './database/db.js';
+import { initializeDatabase, sessionNamesDb, applyCustomSessionNames, userSettingsDb } from './database/db.js';
+import { initScraper, closeScraper, scrapeUsage, isEnabled as isScraperEnabled, getCachedUsage, getDefaultProfilePath } from './claudeUsageScraper.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -136,6 +137,31 @@ onSessionStatus((event) => {
         });
     } catch (err) {
         console.error('[ERROR] broadcastSessionStatus failed:', err.message);
+    }
+});
+
+// Broadcast Claude usage data to all connected WebSocket clients
+function broadcastUsageUpdate(data) {
+    try {
+        const message = JSON.stringify({ type: 'claude_usage_update', data });
+        connectedClients.forEach(client => {
+            try {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(message);
+                }
+            } catch { /* ignore individual client errors */ }
+        });
+    } catch (err) {
+        console.error('[ERROR] broadcastUsageUpdate failed:', err.message);
+    }
+}
+
+// Trigger a usage scrape after each session completes (debounced by scraper's own cache TTL)
+onSessionStatus((event) => {
+    if (event.status === 'completed' && isScraperEnabled()) {
+        scrapeUsage().then(data => {
+            if (data) broadcastUsageUpdate(data);
+        }).catch(() => {});
     }
 });
 
@@ -2744,6 +2770,86 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
     });
 }
 
+// ── Claude Usage Tracker ──────────────────────────────────────────────
+
+// GET /api/claude-usage — returns current (or fresh-scraped) usage data
+app.get('/api/claude-usage', authenticateToken, async (req, res) => {
+    const settings = userSettingsDb.getSettings(req.user.id);
+    const usageSettings = settings.claudeUsage || {};
+
+    if (!usageSettings.enabled) {
+        return res.json({ enabled: false, data: null });
+    }
+
+    // Lazy-init: if enabled in settings but browser not running yet (e.g. after server restart)
+    if (!isScraperEnabled()) {
+        try {
+            const data = await initScraper(usageSettings.chromeProfilePath || null);
+            broadcastUsageUpdate(data);
+            return res.json({ enabled: true, data });
+        } catch (err) {
+            return res.json({ enabled: true, data: { spent: null, total: null, reset: null, error: 'Failed to start browser: ' + err.message, errorType: 'generic', lastUpdated: null } });
+        }
+    }
+
+    const data = await scrapeUsage();
+    broadcastUsageUpdate(data);
+    res.json({ enabled: true, data });
+});
+
+// POST /api/claude-usage/refresh — force a fresh scrape ignoring the cache
+app.post('/api/claude-usage/refresh', authenticateToken, async (req, res) => {
+    const settings = userSettingsDb.getSettings(req.user.id);
+    const usageSettings = settings.claudeUsage || {};
+
+    if (!usageSettings.enabled) {
+        return res.json({ enabled: false, data: null });
+    }
+
+    if (!isScraperEnabled()) {
+        try {
+            const data = await initScraper(usageSettings.chromeProfilePath || null);
+            broadcastUsageUpdate(data);
+            return res.json({ enabled: true, data });
+        } catch (err) {
+            return res.json({ enabled: true, data: { spent: null, total: null, reset: null, error: 'Failed to start browser: ' + err.message, errorType: 'generic', lastUpdated: null } });
+        }
+    }
+
+    const data = await scrapeUsage(true);
+    broadcastUsageUpdate(data);
+    res.json({ enabled: true, data });
+});
+
+// PATCH /api/claude-usage/settings — enable/disable and set profile path
+app.patch('/api/claude-usage/settings', authenticateToken, async (req, res) => {
+    const { enabled, chromeProfilePath } = req.body;
+    const current = userSettingsDb.getSettings(req.user.id);
+    const currentUsage = current.claudeUsage || {};
+
+    const updated = {
+        ...current,
+        claudeUsage: {
+            enabled: typeof enabled === 'boolean' ? enabled : currentUsage.enabled,
+            chromeProfilePath: typeof chromeProfilePath === 'string' ? chromeProfilePath : (currentUsage.chromeProfilePath || ''),
+        },
+    };
+
+    userSettingsDb.updateSettings(req.user.id, updated);
+
+    if (updated.claudeUsage.enabled && !isScraperEnabled()) {
+        // Start the scraper
+        initScraper(updated.claudeUsage.chromeProfilePath || null)
+            .then(data => { if (data) broadcastUsageUpdate(data); })
+            .catch(err => console.error('[ClaudeUsage] Init error:', err.message));
+    } else if (!updated.claudeUsage.enabled && isScraperEnabled()) {
+        // Stop the scraper
+        closeScraper().catch(() => {});
+    }
+
+    res.json({ success: true, claudeUsage: updated.claudeUsage });
+});
+
 const SERVER_PORT = process.env.SERVER_PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const DISPLAY_HOST = getConnectableHost(HOST);
@@ -2794,9 +2900,10 @@ async function startServer() {
             });
         });
 
-        // Clean up plugin processes on shutdown
+        // Clean up plugin processes and scraper on shutdown
         const shutdownPlugins = async () => {
             await stopAllPlugins();
+            if (isScraperEnabled()) await closeScraper().catch(() => {});
             process.exit(0);
         };
         process.on('SIGTERM', () => void shutdownPlugins());

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { RotateCw } from 'lucide-react';
@@ -94,6 +94,43 @@ export default function AppearanceSettingsTab({
       return next;
     });
   }, []);
+
+  // Claude Usage Tracker
+  const [claudeUsageEnabled, setClaudeUsageEnabled] = useState(() => {
+    const cached = getCachedSettings();
+    return cached?.claudeUsage?.enabled ?? false;
+  });
+  const [claudeUsageProfilePath, setClaudeUsageProfilePath] = useState(() => {
+    const cached = getCachedSettings();
+    return cached?.claudeUsage?.chromeProfilePath ?? '';
+  });
+  const profilePathSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClaudeUsageToggle = useCallback(async (enabled: boolean) => {
+    setClaudeUsageEnabled(enabled);
+    const current = getCachedSettings();
+    await updateSettingsPartial({
+      claudeUsage: { enabled, chromeProfilePath: current?.claudeUsage?.chromeProfilePath ?? '' },
+    });
+    await authenticatedFetch('/api/claude-usage/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    });
+  }, []);
+
+  const handleProfilePathChange = useCallback((value: string) => {
+    setClaudeUsageProfilePath(value);
+    if (profilePathSaveTimer.current) clearTimeout(profilePathSaveTimer.current);
+    profilePathSaveTimer.current = setTimeout(async () => {
+      await updateSettingsPartial({
+        claudeUsage: { enabled: claudeUsageEnabled, chromeProfilePath: value },
+      });
+      await authenticatedFetch('/api/claude-usage/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ chromeProfilePath: value }),
+      });
+    }, 800);
+  }, [claudeUsageEnabled]);
 
   // Server restart state
   const [restartPhase, setRestartPhase] = useState<'idle' | 'confirm' | 'calling' | 'countdown' | 'reconnecting'>('idle');
@@ -396,6 +433,35 @@ export default function AppearanceSettingsTab({
               <option value="20">20px</option>
             </select>
           </SettingsRow>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Claude Usage Tracker">
+        <SettingsCard divided>
+          <SettingsRow
+            label="Enable Usage Tracker"
+            description="Scrapes claude.ai/settings/usage after each session to show billing data in the sidebar"
+          >
+            <SettingsToggle
+              checked={claudeUsageEnabled}
+              onChange={handleClaudeUsageToggle}
+              ariaLabel="Enable Claude usage tracker"
+            />
+          </SettingsRow>
+          {claudeUsageEnabled && (
+            <SettingsRow
+              label="Chrome Profile Path"
+              description="Path to the persistent Chrome profile used for scraping. Leave blank to use the default."
+            >
+              <input
+                type="text"
+                value={claudeUsageProfilePath}
+                onChange={(e) => handleProfilePathChange(e.target.value)}
+                placeholder="Default: AppData\Local\ClaudeUsageBot\chrome_profile"
+                className="w-full rounded-lg border border-input bg-card px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:w-80"
+              />
+            </SettingsRow>
+          )}
         </SettingsCard>
       </SettingsSection>
 
