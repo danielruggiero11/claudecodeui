@@ -4,6 +4,7 @@ import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
 import type { ChatInterfaceProps, Provider  } from '../types/types';
 import type { SessionProvider } from '../../../types/app';
+import { useFlag } from '../../../contexts/FlagContext';
 import { useChatProviderState } from '../hooks/useChatProviderState';
 import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
@@ -61,6 +62,40 @@ function ChatInterface({
     accumulatedStreamRef.current = '';
   }, []);
 
+  // Flag mode: per-session persistent validation marker
+  const { flagSession, unflagSession, isSessionFlagged } = useFlag();
+  const activeSessionId = selectedSession?.id ?? null;
+  const flagMode = activeSessionId ? isSessionFlagged(activeSessionId) : false;
+
+  const handleToggleFlag = useCallback(() => {
+    if (!activeSessionId) return;
+    if (isSessionFlagged(activeSessionId)) {
+      unflagSession(activeSessionId);
+      // Inform service worker
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'flag-mode-change', active: false });
+      }
+    } else {
+      flagSession(activeSessionId);
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'flag-mode-change', active: true });
+      }
+    }
+  }, [activeSessionId, flagSession, unflagSession, isSessionFlagged]);
+
+  // When a session completes while flagged, the sidebar already shows the flag indicator.
+  // Listen for SW push override to handle background completions.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'flag:triggered' && activeSessionId && isSessionFlagged(activeSessionId)) {
+        // Flag is already set; no extra action needed — sidebar indicator is already showing.
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+  }, [activeSessionId, isSessionFlagged]);
+
   const {
     provider,
     setProvider,
@@ -68,11 +103,13 @@ function ChatInterface({
     setCursorModel,
     claudeModel,
     setClaudeModel,
+    handleClaudeModelChange,
     codexModel,
     setCodexModel,
     geminiModel,
     setGeminiModel,
     permissionMode,
+    selectPermissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
     cyclePermissionMode,
@@ -458,7 +495,9 @@ function ChatInterface({
           onAbortSession={handleAbortSession}
           provider={provider}
           permissionMode={permissionMode}
-          onModeSwitch={cyclePermissionMode}
+          onSetPermissionMode={selectPermissionMode}
+          claudeModel={claudeModel}
+          onClaudeModelChange={handleClaudeModelChange}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
           tokenBudget={tokenBudget}
@@ -469,6 +508,9 @@ function ChatInterface({
           isUserScrolledUp={isUserScrolledUp}
           hasMessages={chatMessages.length > 0}
           onScrollToBottom={scrollToBottomAndReset}
+          flagMode={flagMode}
+          flagTriggered={flagMode}
+          onToggleFlag={handleToggleFlag}
           onSubmit={handleSubmit}
           isDragActive={isDragActive}
           attachedImages={attachedImages}

@@ -174,12 +174,20 @@ export default function ProviderSelectionEmptyState({
           {/* Heading */}
           <div className="mb-8 text-center">
             <img src="/claude.png" alt="" className="mx-auto mb-4 h-12 w-12 rounded-xl shadow-sm" />
-            <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-              {t("providerSelection.title")}
-            </h2>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              {t("providerSelection.description")}
-            </p>
+            {singleProvider ? (
+              <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                {enabledProvidersList[0].name}
+              </h2>
+            ) : (
+              <>
+                <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                  {t("providerSelection.title")}
+                </h2>
+                <p className="mt-1 text-[13px] text-muted-foreground">
+                  {t("providerSelection.description")}
+                </p>
+              </>
+            )}
           </div>
 
           {/* Provider cards — hidden when only one provider is enabled */}

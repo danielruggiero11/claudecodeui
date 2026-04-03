@@ -32,14 +32,15 @@ function parseAmount(val: string | null): number {
   return parseFloat(val.replace(/,/g, '')) || 0;
 }
 
-/** Returns how far through the current billing cycle we are (0–1).
- *  Cycle always resets on the 1st of the month. */
+/** Returns how far through the current billing cycle we are (0–1), at hourly granularity.
+ *  Cycle always resets on the 1st of the month at midnight. */
 function calcCyclePct(): number {
   const now = new Date();
-  const dayOfMonth = now.getDate(); // 1-based
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  // Day 1 = 0% through, last day = (daysInMonth-1)/daysInMonth ≈ 97%
-  return (dayOfMonth - 1) / daysInMonth;
+  const totalHours = daysInMonth * 24;
+  // Hours elapsed since the 1st at midnight
+  const hoursElapsed = (now.getDate() - 1) * 24 + now.getHours() + now.getMinutes() / 60;
+  return hoursElapsed / totalHours;
 }
 
 export default function ClaudeUsageWidget() {
@@ -73,7 +74,7 @@ export default function ClaudeUsageWidget() {
 
   // Tick relative time every 30s
   useEffect(() => {
-    timerRef.current = setInterval(() => forceUpdate(n => n + 1), 30000);
+    timerRef.current = setInterval(() => forceUpdate(n => n + 1), 60000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
@@ -107,9 +108,17 @@ export default function ClaudeUsageWidget() {
     'text-green-500';
 
   const paceColor = gap >= 0 ? 'text-green-500' : 'text-red-500';
-  const paceLabel = gap >= 0
-    ? `$${Math.abs(gap).toFixed(0)} under pace`
-    : `$${Math.abs(gap).toFixed(0)} over pace`;
+  const paceArrow = gap >= 0 ? '▲' : '▼';
+  const paceAmt = `$${Math.abs(gap).toFixed(0)}`;
+
+  // Format reset date with abbreviated month (e.g. "Resets Dec 1")
+  const resetLabel = (() => {
+    if (!data?.reset) return null;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = new Date(data.reset);
+    if (isNaN(d.getTime())) return data.reset; // fallback to raw string
+    return `Resets ${months[d.getMonth()]} ${d.getDate()}`;
+  })();
 
   return (
     <div className="px-2 pb-1.5">
@@ -120,14 +129,21 @@ export default function ClaudeUsageWidget() {
             <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-xs font-medium text-foreground">Claude Usage</span>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-            title="Refresh"
-          >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {data?.lastUpdated && (
+              <span className="text-[10px] text-muted-foreground/60">
+                {formatRelativeTime(data.lastUpdated)}
+              </span>
+            )}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              title="Refresh"
+            >
+              <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
         {/* Error state */}
@@ -143,15 +159,12 @@ export default function ClaudeUsageWidget() {
         {/* Progress bar with pace marker */}
         {total > 0 && (
           <div className="relative mb-2 py-1">
-            {/* Track */}
             <div className="h-1.5 w-full rounded-full bg-muted">
-              {/* Spend fill */}
               <div
                 className={`h-full rounded-full transition-all duration-500 ${barColor}`}
                 style={{ width: `${pct}%` }}
               />
             </div>
-            {/* Pace marker tick — sits above/below the bar */}
             {showPace && (
               <div
                 className="absolute top-0 h-3.5 w-0.5 rounded-full bg-foreground/30"
@@ -162,44 +175,26 @@ export default function ClaudeUsageWidget() {
           </div>
         )}
 
-        {/* Amounts row */}
+        {/* Amounts + pace + reset — single row */}
         {(data?.spent !== null || data?.total !== null) && (
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-baseline justify-between gap-1">
             <span className={`text-xs font-semibold ${textColor}`}>
               ${data?.spent ?? '—'}
               <span className="font-normal text-muted-foreground"> / ${data?.total ?? '—'}</span>
+              {showPace && (
+                <span className={`ml-1 text-[10px] font-medium ${paceColor}`}>
+                  {paceArrow}{paceAmt}
+                </span>
+              )}
+              {total > 0 && (
+                <span className={`ml-1 text-[10px] font-medium ${textColor}`}>{pct.toFixed(0)}%</span>
+              )}
             </span>
-            {total > 0 && (
-              <span className={`text-[10px] font-medium ${textColor}`}>{pct.toFixed(0)}%</span>
+            {resetLabel && (
+              <span className="shrink-0 text-[10px] text-muted-foreground">{resetLabel}</span>
             )}
           </div>
         )}
-
-        {/* Pace row */}
-        {showPace && (
-          <div className="mt-0.5 flex items-center justify-between">
-            <span className={`text-[10px] font-medium ${paceColor}`}>
-              {gap >= 0 ? '▲' : '▼'} {paceLabel}
-            </span>
-            <span className="text-[10px] text-muted-foreground/50">
-              day {new Date().getDate()}
-            </span>
-          </div>
-        )}
-
-        {/* Reset date + last updated */}
-        <div className="mt-1 flex items-center justify-between border-t border-border/30 pt-1">
-          {data?.reset ? (
-            <span className="text-[10px] text-muted-foreground">Resets {data.reset}</span>
-          ) : (
-            <span />
-          )}
-          {data?.lastUpdated && (
-            <span className="text-[10px] text-muted-foreground/60">
-              {formatRelativeTime(data.lastUpdated)}
-            </span>
-          )}
-        </div>
       </div>
     </div>
   );

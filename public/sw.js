@@ -1,4 +1,12 @@
 // Service Worker for Claude Code UI PWA
+// Flag mode: when active, push notifications are replaced with a minimal flag indicator
+let flagModeActive = false;
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'flag-mode-change') {
+    flagModeActive = Boolean(event.data.active);
+  }
+});
 // Cache only manifest (needed for PWA install). HTML and JS are never pre-cached
 // so a rebuild + refresh always picks up the latest assets.
 const CACHE_NAME = 'claude-ui-v2';
@@ -80,6 +88,24 @@ self.addEventListener('push', event => {
     payload = event.data.json();
   } catch {
     payload = { title: 'Claude Code UI', body: event.data.text() };
+  }
+
+  if (flagModeActive) {
+    // Flag mode: notify all open windows to activate the flag, show minimal notification
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window' }).then(clients => {
+        clients.forEach(client => client.postMessage({ type: 'flag:triggered' }));
+        // Browser requires showNotification to be called in a push handler;
+        // show a silent minimal notification so the browser doesn't show a generic fallback.
+        return self.registration.showNotification('Flag triggered', {
+          body: 'A session completed. Check the flag indicator in the UI.',
+          icon: '/logo-256.png',
+          tag: 'flag-triggered',
+          silent: true,
+        });
+      })
+    );
+    return;
   }
 
   const options = {

@@ -2,12 +2,16 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PermissionMode, Provider } from '../../types/types';
 import ThinkingModeSelector from './ThinkingModeSelector';
+import ModelSelector from './ModelSelector';
+import PermissionModeSelector from './PermissionModeSelector';
 import TokenUsagePie from './TokenUsagePie';
 
 interface ChatInputControlsProps {
   permissionMode: PermissionMode | string;
-  onModeSwitch: () => void;
+  onSetPermissionMode: (mode: PermissionMode) => void;
   provider: Provider | string;
+  claudeModel: string;
+  onClaudeModelChange: (model: string) => void;
   thinkingMode: string;
   setThinkingMode: React.Dispatch<React.SetStateAction<string>>;
   tokenBudget: { used?: number; total?: number } | null;
@@ -18,12 +22,17 @@ interface ChatInputControlsProps {
   isUserScrolledUp: boolean;
   hasMessages: boolean;
   onScrollToBottom: () => void;
+  flagMode: boolean;
+  flagTriggered: boolean;
+  onToggleFlag: () => void;
 }
 
 export default function ChatInputControls({
   permissionMode,
-  onModeSwitch,
+  onSetPermissionMode,
   provider,
+  claudeModel,
+  onClaudeModelChange,
   thinkingMode,
   setThinkingMode,
   tokenBudget,
@@ -34,47 +43,23 @@ export default function ChatInputControls({
   isUserScrolledUp,
   hasMessages,
   onScrollToBottom,
+  flagMode,
+  flagTriggered,
+  onToggleFlag,
 }: ChatInputControlsProps) {
   const { t } = useTranslation('chat');
 
-  console.log('[PermMode] ChatInputControls render: permissionMode =', permissionMode);
-
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-      <button
-        type="button"
-        onClick={onModeSwitch}
-        className={`rounded-lg border px-2.5 py-1 text-sm font-medium transition-all duration-200 sm:px-3 sm:py-1.5 ${
-          permissionMode === 'default'
-            ? 'border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted'
-            : permissionMode === 'acceptEdits'
-              ? 'border-green-300/60 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-600/40 dark:bg-green-900/15 dark:text-green-300 dark:hover:bg-green-900/25'
-              : permissionMode === 'bypassPermissions'
-                ? 'border-orange-300/60 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:text-orange-300 dark:hover:bg-orange-900/25'
-                : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
-        }`}
-        title={t('input.clickToChangeMode')}
-      >
-        <div className="flex items-center gap-1.5">
-          <div
-            className={`h-1.5 w-1.5 rounded-full ${
-              permissionMode === 'default'
-                ? 'bg-muted-foreground'
-                : permissionMode === 'acceptEdits'
-                  ? 'bg-green-500'
-                  : permissionMode === 'bypassPermissions'
-                    ? 'bg-orange-500'
-                    : 'bg-primary'
-            }`}
-          />
-          <span>
-            {permissionMode === 'default' && t('codex.modes.default')}
-            {permissionMode === 'acceptEdits' && t('codex.modes.acceptEdits')}
-            {permissionMode === 'bypassPermissions' && t('codex.modes.bypassPermissions')}
-            {permissionMode === 'plan' && t('codex.modes.plan')}
-          </span>
-        </div>
-      </button>
+      <PermissionModeSelector
+        permissionMode={permissionMode}
+        onModeSelect={onSetPermissionMode}
+        provider={provider as string}
+      />
+
+      {provider === 'claude' && (
+        <ModelSelector selectedModel={claudeModel} onModelChange={onClaudeModelChange} />
+      )}
 
       {provider === 'claude' && (
         <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" provider={provider} />
@@ -97,9 +82,7 @@ export default function ChatInputControls({
           />
         </svg>
         {slashCommandsCount > 0 && (
-          <span
-            className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground sm:h-5 sm:w-5"
-          >
+          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground sm:h-5 sm:w-5">
             {slashCommandsCount}
           </span>
         )}
@@ -134,6 +117,36 @@ export default function ChatInputControls({
           </svg>
         </button>
       )}
+
+      <button
+        type="button"
+        onClick={onToggleFlag}
+        className={`relative flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-200 sm:h-8 sm:w-8 ${
+          flagMode
+            ? 'bg-yellow-400/20 text-yellow-500 hover:bg-yellow-400/30 dark:bg-yellow-400/15 dark:text-yellow-400 dark:hover:bg-yellow-400/25'
+            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+        }`}
+        title={flagMode ? 'Flag active — click to clear' : 'Set validation flag (suppresses notifications)'}
+      >
+        <svg
+          className={`h-4 w-4 sm:h-5 sm:w-5 ${flagMode && flagTriggered ? 'animate-pulse' : ''}`}
+          viewBox="0 0 24 24"
+          fill={flagMode ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth={flagMode ? 0 : 1.75}
+        >
+          {/* Flag pole */}
+          <line x1="4" y1="3" x2="4" y2="21" strokeLinecap="round" strokeWidth={1.75} stroke="currentColor" />
+          {/* Flag body */}
+          <path d="M4 3 L20 8 L4 13 Z" />
+        </svg>
+        {flagMode && flagTriggered && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2 items-center justify-center">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-400 opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-yellow-500" />
+          </span>
+        )}
+      </button>
     </div>
   );
 }

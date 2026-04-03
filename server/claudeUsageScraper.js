@@ -32,12 +32,15 @@ let pyProc        = null;   // child_process
 let scraperEnabled = false;
 let lastCache      = null;  // { data, timestamp }
 let scrapeInProgress = false;
+let initPromise    = null;  // in-flight initScraper promise (prevents double-init)
 
 // Strictly serial request queue: one outstanding command at a time
 let pendingResolve = null;
 let lineBuffer     = '';
 
 // ── Exported helpers ────────────────────────────────────────────────────
+
+export function isInitializing() { return initPromise !== null; }
 
 export function getDefaultProfilePath() {
     const localAppData = process.env.LOCALAPPDATA ||
@@ -103,12 +106,26 @@ function sendCommand(cmd) {
 // ── Exported API ────────────────────────────────────────────────────────
 
 export async function initScraper(profilePath) {
+    // If an init is already in flight, wait for it instead of starting a duplicate
+    if (initPromise) return await initPromise;
+
     const pythonExe = process.env.CLAUDE_USAGE_PYTHON || DEFAULT_PYTHON;
 
     // Tear down any existing process
     if (pyProc && pyProc.exitCode === null) {
         await closeScraper();
     }
+
+    initPromise = _doInit(pythonExe, profilePath);
+    try {
+        const result = await initPromise;
+        return result;
+    } finally {
+        initPromise = null;
+    }
+}
+
+async function _doInit(pythonExe, profilePath) {
 
     lineBuffer    = '';
     pendingResolve = null;
@@ -235,6 +252,7 @@ export async function scrapeUsage(force = false) {
 
 export async function closeScraper() {
     scraperEnabled = false;
+    initPromise = null;
     if (!pyProc || pyProc.exitCode !== null) {
         pyProc = null;
         return;

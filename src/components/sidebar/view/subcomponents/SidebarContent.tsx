@@ -4,10 +4,10 @@ import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import type { Project } from '../../../../types/app';
-import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, RecentConversation, SearchProgress } from '../../hooks/useSidebarController';
 import { getSessionName, getSessionDate } from '../../utils/utils';
 import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
+import { useFlag } from '../../../../contexts/FlagContext';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
@@ -73,10 +73,6 @@ type SidebarContentProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
-  updateAvailable: boolean;
-  releaseInfo: ReleaseInfo | null;
-  latestVersion: string | null;
-  onShowVersionModal: () => void;
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
@@ -101,15 +97,12 @@ export default function SidebarContent({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
-  updateAvailable,
-  releaseInfo,
-  latestVersion,
-  onShowVersionModal,
   onShowSettings,
   projectListProps,
   t,
 }: SidebarContentProps) {
   const { statusMap } = useSessionStatus();
+  const { isSessionFlagged } = useFlag();
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const showRecentConversations = searchMode === 'conversations' && searchFilter.trim().length < 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
@@ -263,9 +256,11 @@ export default function SidebarContent({
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-1.5">
                         {sessionLiveStatus === 'responding' && <TypingDots className="scale-75" />}
-                        {sessionLiveStatus === 'response-ready' && (
+                        {sessionLiveStatus === 'response-ready' ? (
                           <div className="h-2 w-2 rounded-full bg-primary" />
-                        )}
+                        ) : isSessionFlagged(item.session.id) && sessionLiveStatus === 'idle' ? (
+                          <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                        ) : null}
                         <span className="text-[10px] text-muted-foreground/50">
                           {formatRelativeTime(sessionDate)}
                         </span>
@@ -303,10 +298,6 @@ export default function SidebarContent({
       </ScrollArea>
 
       <SidebarFooter
-        updateAvailable={updateAvailable}
-        releaseInfo={releaseInfo}
-        latestVersion={latestVersion}
-        onShowVersionModal={onShowVersionModal}
         onShowSettings={onShowSettings}
         t={t}
       />

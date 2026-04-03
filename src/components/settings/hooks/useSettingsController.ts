@@ -826,6 +826,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
         defaultEffort: cached?.defaultEffort || localStorage.getItem('claude-default-effort') || 'high',
         gitAutoStageAll: cached?.gitAutoStageAll ?? false,
         starredProjects: cached?.starredProjects || [],
+        claudeUsage: cached?.claudeUsage || { enabled: false, chromeProfilePath: '' },
         _version: 1,
         _migratedAt: cached?._migratedAt || new Date().toISOString(),
       };

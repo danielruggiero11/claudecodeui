@@ -47,7 +47,9 @@ interface ChatComposerProps {
   onAbortSession: () => void;
   provider: Provider | string;
   permissionMode: PermissionMode | string;
-  onModeSwitch: () => void;
+  onSetPermissionMode: (mode: PermissionMode) => void;
+  claudeModel: string;
+  onClaudeModelChange: (model: string) => void;
   thinkingMode: string;
   setThinkingMode: Dispatch<SetStateAction<string>>;
   tokenBudget: { used?: number; total?: number } | null;
@@ -58,6 +60,9 @@ interface ChatComposerProps {
   isUserScrolledUp: boolean;
   hasMessages: boolean;
   onScrollToBottom: () => void;
+  flagMode: boolean;
+  flagTriggered: boolean;
+  onToggleFlag: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
   isDragActive: boolean;
   attachedImages: File[];
@@ -111,7 +116,9 @@ export default function ChatComposer({
   onAbortSession,
   provider,
   permissionMode,
-  onModeSwitch,
+  onSetPermissionMode,
+  claudeModel,
+  onClaudeModelChange,
   thinkingMode,
   setThinkingMode,
   tokenBudget,
@@ -122,6 +129,9 @@ export default function ChatComposer({
   isUserScrolledUp,
   hasMessages,
   onScrollToBottom,
+  flagMode,
+  flagTriggered,
+  onToggleFlag,
   onSubmit,
   isDragActive,
   attachedImages,
@@ -212,8 +222,10 @@ export default function ChatComposer({
 
         {!hasQuestionPanel && <ChatInputControls
           permissionMode={permissionMode}
-          onModeSwitch={onModeSwitch}
+          onSetPermissionMode={onSetPermissionMode}
           provider={provider}
+          claudeModel={claudeModel}
+          onClaudeModelChange={onClaudeModelChange}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
           tokenBudget={tokenBudget}
@@ -224,6 +236,9 @@ export default function ChatComposer({
           isUserScrolledUp={isUserScrolledUp}
           hasMessages={hasMessages}
           onScrollToBottom={onScrollToBottom}
+          flagMode={flagMode}
+          flagTriggered={flagTriggered}
+          onToggleFlag={onToggleFlag}
         />}
       </div>
 

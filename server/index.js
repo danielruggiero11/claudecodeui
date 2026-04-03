@@ -69,8 +69,8 @@ import pluginsRoutes from './routes/plugins.js';
 import messagesRoutes from './routes/messages.js';
 import { createNormalizedMessage } from './providers/types.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
-import { initializeDatabase, sessionNamesDb, applyCustomSessionNames, userSettingsDb } from './database/db.js';
-import { initScraper, closeScraper, scrapeUsage, isEnabled as isScraperEnabled, getCachedUsage, getDefaultProfilePath } from './claudeUsageScraper.js';
+import { db, initializeDatabase, sessionNamesDb, applyCustomSessionNames, userSettingsDb, flaggedSessionsDb, sessionReadStatusDb } from './database/db.js';
+import { initScraper, closeScraper, scrapeUsage, isEnabled as isScraperEnabled, isInitializing as isScraperInitializing, getCachedUsage, getDefaultProfilePath } from './claudeUsageScraper.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -155,6 +155,13 @@ function broadcastUsageUpdate(data) {
         console.error('[ERROR] broadcastUsageUpdate failed:', err.message);
     }
 }
+
+// Persist response-ready state to DB when a session completes (enables cross-device unread indicators)
+onSessionStatus((event) => {
+    if (event.status === 'completed' || event.status === 'error') {
+        sessionReadStatusDb.setResponseReadyForAllUsers(event.sessionId, event.provider, event.timestamp || Date.now());
+    }
+});
 
 // Trigger a usage scrape after each session completes (debounced by scraper's own cache TTL)
 onSessionStatus((event) => {
@@ -766,6 +773,66 @@ app.put('/api/sessions/:sessionId/rename', authenticateToken, async (req, res) =
         res.json({ success: true });
     } catch (error) {
         console.error(`[API] Error renaming session ${req.params.sessionId}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all flagged session IDs for the current user
+app.get('/api/sessions/flagged', authenticateToken, (req, res) => {
+    try {
+        const sessionIds = flaggedSessionsDb.getAll(req.user.id);
+        res.json({ sessionIds });
+    } catch (error) {
+        console.error('[API] Error fetching flagged sessions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Flag or unflag a session
+app.put('/api/sessions/:sessionId/flag', authenticateToken, (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
+        if (!safeSessionId || safeSessionId !== String(sessionId)) {
+            return res.status(400).json({ error: 'Invalid sessionId' });
+        }
+        const { flagged } = req.body;
+        if (typeof flagged !== 'boolean') {
+            return res.status(400).json({ error: 'flagged must be a boolean' });
+        }
+        flaggedSessionsDb.set(req.user.id, safeSessionId, flagged);
+        res.json({ success: true });
+    } catch (error) {
+        console.error(`[API] Error updating flag for session ${req.params.sessionId}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get session read-status (last-seen + response-ready) for current user
+app.get('/api/sessions/read-status', authenticateToken, (req, res) => {
+    try {
+        const data = sessionReadStatusDb.getAll(req.user.id);
+        res.json(data);
+    } catch (error) {
+        console.error('[API] Error fetching session read-status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark a session as seen (clears response-ready, updates last-seen)
+app.put('/api/sessions/:sessionId/seen', authenticateToken, (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
+        if (!safeSessionId || safeSessionId !== String(sessionId)) {
+            return res.status(400).json({ error: 'Invalid sessionId' });
+        }
+        const timestamp = Date.now();
+        sessionReadStatusDb.setLastSeen(req.user.id, safeSessionId, timestamp);
+        sessionReadStatusDb.clearResponseReady(req.user.id, safeSessionId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error(`[API] Error marking session ${req.params.sessionId} as seen:`, error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -2781,9 +2848,11 @@ app.get('/api/claude-usage', authenticateToken, async (req, res) => {
         return res.json({ enabled: false, data: null });
     }
 
-    // Lazy-init: if enabled in settings but browser not running yet (e.g. after server restart)
+    // Scraper should already be running (auto-started on server boot).
+    // If init is still in-progress, wait for it; if not started, kick it off.
     if (!isScraperEnabled()) {
         try {
+            // initScraper deduplicates concurrent calls via initPromise
             const data = await initScraper(usageSettings.chromeProfilePath || null);
             broadcastUsageUpdate(data);
             return res.json({ enabled: true, data });
@@ -2808,6 +2877,7 @@ app.post('/api/claude-usage/refresh', authenticateToken, async (req, res) => {
 
     if (!isScraperEnabled()) {
         try {
+            // initScraper deduplicates concurrent calls via initPromise
             const data = await initScraper(usageSettings.chromeProfilePath || null);
             broadcastUsageUpdate(data);
             return res.json({ enabled: true, data });
@@ -2863,6 +2933,24 @@ async function startServer() {
 
         // Configure Web Push (VAPID keys)
         configureWebPush();
+
+        // Auto-start Claude Usage scraper if any user had it enabled before restart
+        try {
+            const rows = db.prepare('SELECT settings_json FROM user_settings').all();
+            for (const row of rows) {
+                try {
+                    const s = JSON.parse(row.settings_json);
+                    if (s?.claudeUsage?.enabled) {
+                        const profilePath = s.claudeUsage.chromeProfilePath || null;
+                        console.log(`${c.info('[INFO]')} Auto-starting Claude Usage scraper...`);
+                        initScraper(profilePath)
+                            .then(data => { if (data) broadcastUsageUpdate(data); })
+                            .catch(err => console.error('[ClaudeUsage] Auto-start error:', err.message));
+                        break; // only one scraper instance needed
+                    }
+                } catch { /* skip malformed row */ }
+            }
+        } catch { /* non-fatal */ }
 
         // Check if running in production mode (dist folder exists)
         const distIndexPath = path.join(__dirname, '../dist/index.html');

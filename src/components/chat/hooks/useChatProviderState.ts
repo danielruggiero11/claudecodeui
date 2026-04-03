@@ -130,6 +130,19 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     }
   }, [permissionMode, provider, selectedSession?.id]);
 
+  const selectPermissionMode = useCallback((mode: PermissionMode) => {
+    setPermissionMode(mode);
+    if (selectedSession?.id) {
+      localStorage.setItem(`permissionMode-${selectedSession.id}`, mode);
+      saveSessionPermission(selectedSession.id, mode).catch(() => {});
+    }
+  }, [selectedSession?.id]);
+
+  const handleClaudeModelChange = useCallback((model: string) => {
+    setClaudeModel(model);
+    localStorage.setItem('claude-model', model);
+  }, []);
+
   return {
     provider,
     setProvider,
@@ -137,12 +150,14 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     setCursorModel,
     claudeModel,
     setClaudeModel,
+    handleClaudeModelChange,
     codexModel,
     setCodexModel,
     geminiModel,
     setGeminiModel,
     permissionMode,
     setPermissionMode,
+    selectPermissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
     cyclePermissionMode,

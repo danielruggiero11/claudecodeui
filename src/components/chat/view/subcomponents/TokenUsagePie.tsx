@@ -4,50 +4,35 @@ type TokenUsagePieProps = {
 };
 
 export default function TokenUsagePie({ used, total }: TokenUsagePieProps) {
-  // Token usage visualization component
-  // Only bail out on missing values or non‐positive totals; allow used===0 to render 0%
   if (used == null || total == null || total <= 0) return null;
 
   const percentage = Math.min(100, (used / total) * 100);
-  const radius = 10;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percentage / 100) * circumference;
 
-  // Color based on usage level
-  const getColor = () => {
-    if (percentage < 50) return '#3b82f6'; // blue
-    if (percentage < 75) return '#f59e0b'; // orange
-    return '#ef4444'; // red
-  };
+  const barColor =
+    percentage >= 75 ? 'bg-red-500' :
+    percentage >= 50 ? 'bg-yellow-500' :
+    'bg-blue-500';
+
+  const textColor =
+    percentage >= 75 ? 'text-red-500' :
+    percentage >= 50 ? 'text-yellow-500' :
+    'text-blue-500 dark:text-blue-400';
 
   return (
-    <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-      <svg width="24" height="24" viewBox="0 0 24 24" className="-rotate-90 transform">
-        {/* Background circle */}
-        <circle
-          cx="12"
-          cy="12"
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="text-gray-300 dark:text-gray-600"
+    <div
+      className="flex w-6 flex-col items-center gap-0.5"
+      title={`${used.toLocaleString()} / ${total.toLocaleString()} tokens`}
+    >
+      {/* Progress bar */}
+      <div className="h-1 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+          style={{ width: `${percentage}%` }}
         />
-        {/* Progress circle */}
-        <circle
-          cx="12"
-          cy="12"
-          r={radius}
-          fill="none"
-          stroke={getColor()}
-          strokeWidth="2"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-        />
-      </svg>
-      <span title={`${used.toLocaleString()} / ${total.toLocaleString()} tokens`}>
-        {percentage.toFixed(1)}%
+      </div>
+      {/* Percentage label */}
+      <span className={`text-[10px] font-medium leading-none ${textColor}`}>
+        {percentage.toFixed(0)}%
       </span>
     </div>
   );

@@ -732,6 +732,99 @@ function applyCustomSessionNames(sessions, provider) {
   }
 }
 
+// Session read-status database operations (last-seen + response-ready)
+const sessionReadStatusDb = {
+  // Returns { lastSeen: {[sessionId]: number}, responseReady: {[sessionId]: {provider, lastActiveAt}} }
+  getAll: (userId) => {
+    try {
+      const lastSeenRows = db.prepare('SELECT session_id, last_seen_at FROM session_last_seen WHERE user_id = ?').all(userId);
+      const responseReadyRows = db.prepare('SELECT session_id, provider, last_active_at FROM session_response_ready WHERE user_id = ?').all(userId);
+      const lastSeen = {};
+      for (const r of lastSeenRows) lastSeen[r.session_id] = r.last_seen_at;
+      const responseReady = {};
+      for (const r of responseReadyRows) responseReady[r.session_id] = { provider: r.provider, lastActiveAt: r.last_active_at };
+      return { lastSeen, responseReady };
+    } catch (err) {
+      console.warn('[DB] sessionReadStatusDb.getAll error:', err.message);
+      return { lastSeen: {}, responseReady: {} };
+    }
+  },
+
+  setLastSeen: (userId, sessionId, timestamp) => {
+    try {
+      db.prepare(`
+        INSERT INTO session_last_seen (user_id, session_id, last_seen_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id, session_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+      `).run(userId, sessionId, timestamp);
+    } catch (err) {
+      console.warn('[DB] sessionReadStatusDb.setLastSeen error:', err.message);
+    }
+  },
+
+  setResponseReady: (userId, sessionId, provider, lastActiveAt) => {
+    try {
+      db.prepare(`
+        INSERT INTO session_response_ready (user_id, session_id, provider, last_active_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, session_id) DO UPDATE SET provider = excluded.provider, last_active_at = excluded.last_active_at
+      `).run(userId, sessionId, provider, lastActiveAt);
+    } catch (err) {
+      console.warn('[DB] sessionReadStatusDb.setResponseReady error:', err.message);
+    }
+  },
+
+  clearResponseReady: (userId, sessionId) => {
+    try {
+      db.prepare('DELETE FROM session_response_ready WHERE user_id = ? AND session_id = ?').run(userId, sessionId);
+    } catch (err) {
+      console.warn('[DB] sessionReadStatusDb.clearResponseReady error:', err.message);
+    }
+  },
+
+  // Called server-side when a session completes — writes for all active users
+  setResponseReadyForAllUsers: (sessionId, provider, lastActiveAt) => {
+    try {
+      const users = db.prepare('SELECT id FROM users WHERE is_active = 1').all();
+      const stmt = db.prepare(`
+        INSERT INTO session_response_ready (user_id, session_id, provider, last_active_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, session_id) DO UPDATE SET provider = excluded.provider, last_active_at = excluded.last_active_at
+      `);
+      for (const user of users) {
+        stmt.run(user.id, sessionId, provider, lastActiveAt);
+      }
+    } catch (err) {
+      console.warn('[DB] sessionReadStatusDb.setResponseReadyForAllUsers error:', err.message);
+    }
+  },
+};
+
+// Flagged sessions database operations
+const flaggedSessionsDb = {
+  getAll: (userId) => {
+    try {
+      const rows = db.prepare('SELECT session_id FROM flagged_sessions WHERE user_id = ?').all(userId);
+      return rows.map(r => r.session_id);
+    } catch (err) {
+      console.warn('[DB] flaggedSessionsDb.getAll error:', err.message);
+      return [];
+    }
+  },
+
+  set: (userId, sessionId, flagged) => {
+    if (flagged) {
+      db.prepare(`
+        INSERT INTO flagged_sessions (user_id, session_id)
+        VALUES (?, ?)
+        ON CONFLICT(user_id, session_id) DO NOTHING
+      `).run(userId, sessionId);
+    } else {
+      db.prepare('DELETE FROM flagged_sessions WHERE user_id = ? AND session_id = ?').run(userId, sessionId);
+    }
+  },
+};
+
 // App config database operations
 const appConfigDb = {
   get: (key) => {
@@ -790,6 +883,8 @@ export {
   pushSubscriptionsDb,
   sessionNamesDb,
   applyCustomSessionNames,
+  sessionReadStatusDb,
+  flaggedSessionsDb,
   appConfigDb,
   githubTokensDb // Backward compatibility
 };

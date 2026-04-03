@@ -91,6 +91,40 @@ CREATE TABLE IF NOT EXISTS session_names (
 
 CREATE INDEX IF NOT EXISTS idx_session_names_lookup ON session_names(session_id, provider);
 
+-- Session last-seen timestamps (for unread/response-ready logic)
+CREATE TABLE IF NOT EXISTS session_last_seen (
+    user_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, session_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Response-ready sessions (unread notifications, cross-device)
+CREATE TABLE IF NOT EXISTS session_response_ready (
+    user_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    last_active_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, session_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_last_seen_user ON session_last_seen(user_id);
+CREATE INDEX IF NOT EXISTS idx_session_response_ready_user ON session_response_ready(user_id);
+
+-- Flagged sessions (persisted server-side for cross-device sync)
+CREATE TABLE IF NOT EXISTS flagged_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, session_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_flagged_sessions_user ON flagged_sessions(user_id);
+
 -- App configuration table (auto-generated secrets, settings, etc.)
 CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,

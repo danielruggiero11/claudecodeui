@@ -1,5 +1,7 @@
-import { Bell, BellOff, BellRing, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowUpCircle, Bell, BellOff, BellRing, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useVersionCheck } from '../../../../hooks/useVersionCheck';
 import type { NotificationPreferencesState } from '../../types/types';
 
 type NotificationsSettingsTabProps = {
@@ -22,12 +24,44 @@ export default function NotificationsSettingsTab({
   onDisablePush,
 }: NotificationsSettingsTabProps) {
   const { t } = useTranslation('settings');
+  const { updateAvailable, latestVersion, releaseInfo } = useVersionCheck('siteboon', 'claudecodeui');
+  const [firstSeenDate, setFirstSeenDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (updateAvailable && latestVersion) {
+      const key = `version-first-seen-${latestVersion}`;
+      const existing = localStorage.getItem(key);
+      if (!existing) {
+        const date = new Date().toLocaleDateString();
+        localStorage.setItem(key, date);
+        setFirstSeenDate(date);
+      } else {
+        setFirstSeenDate(existing);
+      }
+    }
+  }, [updateAvailable, latestVersion]);
 
   const pushSupported = pushPermission !== 'unsupported';
   const pushDenied = pushPermission === 'denied';
 
   return (
     <div className="space-y-6 md:space-y-8">
+      {updateAvailable && latestVersion && (
+        <div className="flex items-center gap-3 rounded-lg border border-green-200/80 bg-green-50/60 px-3.5 py-3 dark:border-green-700/40 dark:bg-green-900/10">
+          <ArrowUpCircle className="h-4 w-4 flex-shrink-0 text-green-600 dark:text-green-400" />
+          <div className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-green-700 dark:text-green-300">
+              {releaseInfo?.title || `v${latestVersion}`} available
+            </span>
+            {firstSeenDate && (
+              <span className="text-xs text-green-600/70 dark:text-green-400/60">
+                First seen {firstSeenDate}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Bell className="w-5 h-5 text-blue-600" />

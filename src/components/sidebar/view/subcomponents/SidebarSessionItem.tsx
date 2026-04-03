@@ -7,6 +7,7 @@ import type { Project, ProjectSession, SessionProvider } from '../../../../types
 import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel } from '../../utils/utils';
 import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
+import { useFlag } from '../../../../contexts/FlagContext';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import TypingDots from './TypingDots';
 
@@ -49,7 +50,9 @@ export default function SidebarSessionItem({
   t,
 }: SidebarSessionItemProps) {
   const { getSessionLiveStatus } = useSessionStatus();
+  const { isSessionFlagged } = useFlag();
   const liveStatus = getSessionLiveStatus(session.id);
+  const isFlagged = isSessionFlagged(session.id);
   const sessionView = createSessionViewModel(session, currentTime, t, liveStatus);
   const isSelected = selectedSession?.id === session.id;
 
@@ -68,16 +71,6 @@ export default function SidebarSessionItem({
 
   return (
     <div className="group relative">
-      {liveStatus === 'responding' && (
-        <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <TypingDots className="scale-75" />
-        </div>
-      )}
-      {liveStatus === 'response-ready' && (
-        <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <div className="h-2.5 w-2.5 rounded-full bg-primary" />
-        </div>
-      )}
 
       <div className="md:hidden">
         <div
@@ -112,6 +105,11 @@ export default function SidebarSessionItem({
                 <span className="text-xs text-muted-foreground">
                   {formatTimeAgo(sessionView.sessionTime, currentTime, t)}
                 </span>
+                {liveStatus === 'response-ready'
+                  ? <div className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
+                  : isFlagged && liveStatus === 'idle'
+                    ? <div className="h-2 w-2 flex-shrink-0 rounded-full bg-yellow-500" />
+                    : null}
                 {sessionView.messageCount > 0 && (
                   <Badge variant="secondary" className="ml-auto px-1 py-0 text-xs">
                     {sessionView.messageCount}
@@ -159,6 +157,11 @@ export default function SidebarSessionItem({
                 <span className="text-xs text-muted-foreground">
                   {formatTimeAgo(sessionView.sessionTime, currentTime, t)}
                 </span>
+                {liveStatus === 'response-ready'
+                  ? <div className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
+                  : isFlagged && liveStatus === 'idle'
+                    ? <div className="h-2 w-2 flex-shrink-0 rounded-full bg-yellow-500" />
+                    : null}
                 {sessionView.messageCount > 0 && (
                   <Badge
                     variant="secondary"

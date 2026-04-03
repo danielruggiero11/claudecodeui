@@ -5,6 +5,7 @@ import type { Project, ProjectSession, SessionProvider } from '../../../../types
 import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
 import { getTaskIndicatorStatus } from '../../utils/utils';
 import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
+import { useFlag } from '../../../../contexts/FlagContext';
 import TaskIndicator from './TaskIndicator';
 import SidebarProjectSessions from './SidebarProjectSessions';
 import TypingDots from './TypingDots';
@@ -106,7 +107,9 @@ export default function SidebarProjectItem({
   const sessionCountLabel = `${sessionCountDisplay} session${sessions.length === 1 ? '' : 's'}`;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
   const { getProjectStatus } = useSessionStatus();
+  const { getProjectFlagCount } = useFlag();
   const projectStatus = getProjectStatus(sessions.map(s => s.id));
+  const projectFlagCount = getProjectFlagCount(sessions.map(s => s.id));
 
   const toggleProject = () => onToggleProject(project.name);
   const toggleStarProject = () => onToggleStarProject(project.name);
@@ -152,11 +155,15 @@ export default function SidebarProjectItem({
                 ) : (
                   <Folder className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
-                {projectStatus.responseReadyCount > 0 && (
+                {projectStatus.responseReadyCount > 0 ? (
                   <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground">
                     {projectStatus.responseReadyCount}
                   </span>
-                )}
+                ) : projectFlagCount > 0 && projectStatus.respondingCount === 0 ? (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-500 px-0.5 text-[9px] font-bold text-white">
+                    {projectFlagCount}
+                  </span>
+                ) : null}
               </div>
 
               {isEditing ? (

@@ -19,45 +19,7 @@ type SessionStatusContextType = {
   getSessionLiveStatus: (sessionId: string) => SessionLiveStatus;
 };
 
-// ── localStorage helpers ──────────────────────────────────────────────
-
-const LAST_SEEN_KEY = 'session-last-seen';
-const RESPONSE_READY_KEY = 'session-response-ready';
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-function loadLastSeen(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(LAST_SEEN_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function persistLastSeen(data: Record<string, number>) {
-  try {
-    localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(data));
-  } catch {
-    // best-effort
-  }
-}
-
-function loadResponseReady(): Record<string, { provider: string; lastActiveAt: number }> {
-  try {
-    const raw = localStorage.getItem(RESPONSE_READY_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function persistResponseReady(data: Record<string, { provider: string; lastActiveAt: number }>) {
-  try {
-    localStorage.setItem(RESPONSE_READY_KEY, JSON.stringify(data));
-  } catch {
-    // best-effort
-  }
-}
 
 // ── Context ───────────────────────────────────────────────────────────
 
@@ -75,34 +37,47 @@ export function useSessionStatus(): SessionStatusContextType {
 
 export function SessionStatusProvider({ children }: { children: React.ReactNode }) {
   const { sendMessage, latestMessage, isConnected } = useWebSocket();
-  const [statusMap, setStatusMap] = useState<SessionStatusMap>(() => {
-    // Restore response-ready entries from localStorage
-    const saved = loadResponseReady();
-    const now = Date.now();
-    const map: SessionStatusMap = {};
-    for (const [id, entry] of Object.entries(saved)) {
-      if (now - entry.lastActiveAt < TTL_MS) {
-        map[id] = { status: 'response-ready', provider: entry.provider, lastActiveAt: entry.lastActiveAt };
-      }
-    }
-    return map;
-  });
+  const [statusMap, setStatusMap] = useState<SessionStatusMap>({});
 
   const previouslyActiveRef = useRef<Set<string>>(new Set());
-  const lastSeenRef = useRef<Record<string, number>>(loadLastSeen());
+  const lastSeenRef = useRef<Record<string, number>>({});
   const statusMapRef = useRef<SessionStatusMap>(statusMap);
-  const responseReadyRef = useRef(loadResponseReady());
+  const responseReadyRef = useRef<Record<string, { provider: string; lastActiveAt: number }>>({});
 
   // Keep ref in sync
   useEffect(() => {
     statusMapRef.current = statusMap;
   }, [statusMap]);
 
+  // Load initial state from server
+  useEffect(() => {
+    fetch('/api/sessions/read-status')
+      .then((r) => r.json())
+      .then((data: { lastSeen?: Record<string, number>; responseReady?: Record<string, { provider: string; lastActiveAt: number }> }) => {
+        if (data.lastSeen) {
+          lastSeenRef.current = data.lastSeen;
+        }
+        if (data.responseReady) {
+          const now = Date.now();
+          const map: SessionStatusMap = {};
+          for (const [id, entry] of Object.entries(data.responseReady)) {
+            if (now - entry.lastActiveAt < TTL_MS) {
+              map[id] = { status: 'response-ready', provider: entry.provider, lastActiveAt: entry.lastActiveAt };
+              responseReadyRef.current[id] = entry;
+            }
+          }
+          setStatusMap(map);
+        }
+      })
+      .catch(() => {
+        // best-effort; state remains empty
+      });
+  }, []);
+
   // Poll active sessions
   useEffect(() => {
     if (!isConnected) return;
 
-    // Initial poll immediately
     sendMessage({ type: 'get-active-sessions' });
 
     const hasActiveEntries = Object.values(statusMapRef.current).some(e => e.status === 'responding');
@@ -122,7 +97,6 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
       const nowActive = new Set<string>();
       const nextMap: SessionStatusMap = {};
 
-      // Mark all currently active sessions as responding
       for (const [provider, ids] of Object.entries(sessions)) {
         const idList = Array.isArray(ids)
           ? ids.map((item: string | { id?: string }) =>
@@ -158,7 +132,6 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
       }
 
       previouslyActiveRef.current = nowActive;
-      persistResponseReady(responseReadyRef.current);
       setStatusMap(nextMap);
     }
 
@@ -174,61 +147,42 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
         if (status === 'active') {
           next[sessionId] = { status: 'responding', provider, lastActiveAt: Date.now() };
         } else {
-          // completed or error
           const lastSeen = lastSeenRef.current[sessionId] || 0;
           const lastActive = prev[sessionId]?.lastActiveAt || Date.now();
           if (lastActive > lastSeen) {
             next[sessionId] = { status: 'response-ready', provider, lastActiveAt: lastActive };
             responseReadyRef.current[sessionId] = { provider, lastActiveAt: lastActive };
-            persistResponseReady(responseReadyRef.current);
           } else {
             delete next[sessionId];
             delete responseReadyRef.current[sessionId];
-            persistResponseReady(responseReadyRef.current);
           }
         }
         return next;
       });
     }
 
-    // On reconnect, re-poll immediately
     if (latestMessage.type === 'websocket-reconnected') {
       sendMessage({ type: 'get-active-sessions' });
     }
   }, [latestMessage, sendMessage]);
 
-  // Periodic cleanup of stale last-seen entries (every 5 min)
+  // Periodic cleanup of stale response-ready entries (every 5 min)
   useEffect(() => {
     const cleanup = setInterval(() => {
       const now = Date.now();
-      const maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
-      let changed = false;
-      for (const [id, ts] of Object.entries(lastSeenRef.current)) {
-        if (now - ts > maxAge) {
-          delete lastSeenRef.current[id];
-          changed = true;
-        }
-      }
-      if (changed) persistLastSeen(lastSeenRef.current);
-
-      // Clean stale response-ready
       for (const [id, entry] of Object.entries(responseReadyRef.current)) {
         if (now - entry.lastActiveAt > TTL_MS) {
           delete responseReadyRef.current[id];
         }
       }
-      persistResponseReady(responseReadyRef.current);
     }, 5 * 60 * 1000);
     return () => clearInterval(cleanup);
   }, []);
 
   const markSessionSeen = useCallback((sessionId: string) => {
-    lastSeenRef.current[sessionId] = Date.now();
-    persistLastSeen(lastSeenRef.current);
-
-    // Remove response-ready entry
+    const now = Date.now();
+    lastSeenRef.current[sessionId] = now;
     delete responseReadyRef.current[sessionId];
-    persistResponseReady(responseReadyRef.current);
 
     setStatusMap(prev => {
       const entry = prev[sessionId];
@@ -237,6 +191,11 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
       delete next[sessionId];
       return next;
     });
+
+    // Persist to server (fire-and-forget)
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {
+      method: 'PUT',
+    }).catch(() => {});
   }, []);
 
   const getProjectStatus = useCallback((sessionIds: string[]): ProjectLiveStatus => {
