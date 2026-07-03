@@ -7,6 +7,7 @@ import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import { SessionStatusProvider } from './contexts/SessionStatusContext';
 import { FlagProvider } from './contexts/FlagContext';
+import { ArchiveProvider } from './contexts/ArchiveContext';
 import { PluginsProvider } from './contexts/PluginsContext';
 import AppContent from './components/app/AppContent';
 import i18n from './i18n/config.js';
@@ -19,6 +20,7 @@ export default function App() {
           <WebSocketProvider>
             <SessionStatusProvider>
             <FlagProvider>
+            <ArchiveProvider>
             <PluginsProvider>
               <TasksSettingsProvider>
                 <TaskMasterProvider>
@@ -33,6 +35,7 @@ export default function App() {
                 </TaskMasterProvider>
               </TasksSettingsProvider>
             </PluginsProvider>
+            </ArchiveProvider>
             </FlagProvider>
             </SessionStatusProvider>
           </WebSocketProvider>

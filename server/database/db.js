@@ -158,6 +158,17 @@ const runMigrations = () => {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
+    // Create archived_sessions table if it doesn't exist (for existing installations)
+    db.exec(`CREATE TABLE IF NOT EXISTS archived_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, session_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_archived_sessions_user ON archived_sessions(user_id)');
+
     // Create session_permission_overrides table for per-session permission modes
     db.exec(`CREATE TABLE IF NOT EXISTS session_permission_overrides (
       user_id INTEGER NOT NULL,
@@ -509,6 +520,9 @@ const DEFAULT_USER_SETTINGS = {
     autoScrollToBottom: true,
     sendByCtrlEnter: false,
     sidebarVisible: true,
+    enhancedShellInput: false,
+    enhancedShellInputActive: true,
+    voiceStopOnSend: true,
   },
   codeEditor: {
     theme: 'dark',
@@ -825,6 +839,47 @@ const flaggedSessionsDb = {
   },
 };
 
+// Archived sessions database operations
+const archivedSessionsDb = {
+  getAll: (userId) => {
+    try {
+      const rows = db.prepare('SELECT session_id FROM archived_sessions WHERE user_id = ?').all(userId);
+      return rows.map(r => r.session_id);
+    } catch (err) {
+      console.warn('[DB] archivedSessionsDb.getAll error:', err.message);
+      return [];
+    }
+  },
+
+  set: (userId, sessionId, archived) => {
+    if (archived) {
+      db.prepare(`
+        INSERT INTO archived_sessions (user_id, session_id)
+        VALUES (?, ?)
+        ON CONFLICT(user_id, session_id) DO NOTHING
+      `).run(userId, sessionId);
+    } else {
+      db.prepare('DELETE FROM archived_sessions WHERE user_id = ? AND session_id = ?').run(userId, sessionId);
+    }
+  },
+
+  setBulk: (userId, sessionIds) => {
+    const insert = db.prepare(`
+      INSERT INTO archived_sessions (user_id, session_id)
+      VALUES (?, ?)
+      ON CONFLICT(user_id, session_id) DO NOTHING
+    `);
+    const insertMany = db.transaction((ids) => {
+      for (const id of ids) insert.run(userId, id);
+    });
+    insertMany(sessionIds);
+  },
+
+  deleteForSession: (sessionId) => {
+    db.prepare('DELETE FROM archived_sessions WHERE session_id = ?').run(sessionId);
+  },
+};
+
 // App config database operations
 const appConfigDb = {
   get: (key) => {
@@ -885,6 +940,7 @@ export {
   applyCustomSessionNames,
   sessionReadStatusDb,
   flaggedSessionsDb,
+  archivedSessionsDb,
   appConfigDb,
   githubTokensDb // Backward compatibility
 };

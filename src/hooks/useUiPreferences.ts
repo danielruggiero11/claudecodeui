@@ -8,6 +8,11 @@ type UiPreferences = {
   autoScrollToBottom: boolean;
   sendByCtrlEnter: boolean;
   sidebarVisible: boolean;
+  enhancedShellInput: boolean;
+  /** Quick toggle: only meaningful when enhancedShellInput (master) is true. */
+  enhancedShellInputActive: boolean;
+  /** When true, stops voice recording after sending a message in the shell. */
+  voiceStopOnSend: boolean;
 };
 
 type UiPreferenceKey = keyof UiPreferences;
@@ -40,6 +45,9 @@ const DEFAULTS: UiPreferences = {
   autoScrollToBottom: true,
   sendByCtrlEnter: false,
   sidebarVisible: true,
+  enhancedShellInput: false,
+  enhancedShellInputActive: true,
+  voiceStopOnSend: true,
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULTS) as UiPreferenceKey[];

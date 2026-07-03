@@ -25,6 +25,8 @@ interface ChatInputControlsProps {
   flagMode: boolean;
   flagTriggered: boolean;
   onToggleFlag: () => void;
+  hideTokenUsage?: boolean;
+  onShowContext?: () => void;
 }
 
 export default function ChatInputControls({
@@ -46,6 +48,8 @@ export default function ChatInputControls({
   flagMode,
   flagTriggered,
   onToggleFlag,
+  hideTokenUsage = false,
+  onShowContext,
 }: ChatInputControlsProps) {
   const { t } = useTranslation('chat');
 
@@ -65,7 +69,22 @@ export default function ChatInputControls({
         <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" provider={provider} />
       )}
 
-      <TokenUsagePie used={tokenBudget?.used || 0} total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000} />
+      {!hideTokenUsage && <TokenUsagePie used={tokenBudget?.used || 0} total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000} />}
+
+      {onShowContext && (
+        <button
+          type="button"
+          onClick={onShowContext}
+          className="flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground sm:h-8"
+          title="Show context usage (/context)"
+        >
+          <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" strokeWidth={2} />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 7v5l3 2" />
+          </svg>
+          <span className="text-xs font-medium">Context</span>
+        </button>
+      )}
 
       <button
         type="button"

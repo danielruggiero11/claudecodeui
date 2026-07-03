@@ -3,6 +3,7 @@ import type React from 'react';
 import type { TFunction } from 'i18next';
 import { api } from '../../../utils/api';
 import { useSessionStatus } from '../../../contexts/SessionStatusContext';
+import { useArchive } from '../../../contexts/ArchiveContext';
 import type { Project, ProjectSession, SessionProvider } from '../../../types/app';
 import type {
   AdditionalSessionsByProject,
@@ -101,6 +102,7 @@ export function useSidebarController({
   sidebarVisible,
 }: UseSidebarControllerArgs) {
   const { markSessionSeen } = useSessionStatus();
+  const { isSessionArchived, archiveSession, unarchiveSession } = useArchive();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -359,7 +361,7 @@ export function useSidebarController({
     [searchFilter, sortedProjects],
   );
 
-  const recentConversations = useMemo<RecentConversation[]>(() => {
+  const allRecentConversations = useMemo<RecentConversation[]>(() => {
     const all: RecentConversation[] = [];
     for (const project of projects) {
       if (project.hidden) continue;
@@ -374,8 +376,17 @@ export function useSidebarController({
       }
     }
     all.sort((a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime());
-    return all.slice(0, 50);
+    return all.slice(0, 100);
   }, [projects, additionalSessions]);
+
+  // Split into active (non-archived) and archived lists
+  const recentConversations = useMemo<RecentConversation[]>(() => {
+    return allRecentConversations.filter(c => !isSessionArchived(c.session.id)).slice(0, 50);
+  }, [allRecentConversations, isSessionArchived]);
+
+  const archivedConversations = useMemo<RecentConversation[]>(() => {
+    return allRecentConversations.filter(c => isSessionArchived(c.session.id)).slice(0, 50);
+  }, [allRecentConversations, isSessionArchived]);
 
   const startEditing = useCallback((project: Project) => {
     setEditingProject(project.name);
@@ -663,6 +674,10 @@ export function useSidebarController({
     searchMode,
     setSearchMode,
     recentConversations,
+    archivedConversations,
+    isSessionArchived,
+    archiveSession,
+    unarchiveSession,
     conversationResults,
     isSearching,
     searchProgress,

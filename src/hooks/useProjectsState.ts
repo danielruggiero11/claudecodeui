@@ -424,6 +424,7 @@ export function useProjectsState({
 
   const handleNewSession = useCallback(
     (project: Project) => {
+      console.log('[ProjectsState] handleNewSession called for project:', project.name);
       setSelectedProject(project);
       setSelectedSession(null);
       setActiveTab('chat');

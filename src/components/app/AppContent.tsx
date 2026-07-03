@@ -7,7 +7,6 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
-import MobileNav from './MobileNav';
 import { migrateIfNeeded } from '../../utils/settingsSync';
 
 export default function AppContent() {
@@ -34,7 +33,6 @@ export default function AppContent() {
     activeTab,
     sidebarOpen,
     isLoadingProjects,
-    isInputFocused,
     externalMessageUpdate,
     setActiveTab,
     setSidebarOpen,
@@ -169,7 +167,7 @@ export default function AppContent() {
         </div>
       )}
 
-      <div className={`flex min-w-0 flex-1 flex-col ${isMobile ? 'pb-mobile-nav' : ''}`}>
+      <div className="flex min-w-0 flex-1 flex-col">
         {!isConnected && (
           <div className="flex items-center justify-center gap-2 bg-destructive/90 px-3 py-1.5 text-xs text-destructive-foreground">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive-foreground/80" />
@@ -199,14 +197,6 @@ export default function AppContent() {
           externalMessageUpdate={externalMessageUpdate}
         />
       </div>
-
-      {isMobile && (
-        <MobileNav
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          isInputFocused={isInputFocused}
-        />
-      )}
 
     </div>
   );

@@ -3,6 +3,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import type { UseShellRuntimeOptions, UseShellRuntimeResult } from '../types/types';
 import { copyTextToClipboard } from '../../../utils/clipboard';
+import { sendSocketMessage } from '../utils/socket';
 import { useShellConnection } from './useShellConnection';
 import { useShellTerminal } from './useShellTerminal';
 
@@ -16,6 +17,8 @@ export function useShellRuntime({
   isRestarting,
   onProcessComplete,
   onOutputRef,
+  launchConfig,
+  enhancedInputMode,
 }: UseShellRuntimeOptions): UseShellRuntimeResult {
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -32,6 +35,8 @@ export function useShellRuntime({
   const onProcessCompleteRef = useRef(onProcessComplete);
   const authUrlRef = useRef('');
   const lastSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
+  const launchConfigRef = useRef(launchConfig);
+  const enhancedInputModeRef = useRef(enhancedInputMode ?? false);
 
   // Keep mutable values in refs so websocket handlers always read current data.
   useEffect(() => {
@@ -40,7 +45,9 @@ export function useShellRuntime({
     initialCommandRef.current = initialCommand;
     isPlainShellRef.current = isPlainShell;
     onProcessCompleteRef.current = onProcessComplete;
-  }, [selectedProject, selectedSession, initialCommand, isPlainShell, onProcessComplete]);
+    launchConfigRef.current = launchConfig;
+    enhancedInputModeRef.current = enhancedInputMode ?? false;
+  }, [selectedProject, selectedSession, initialCommand, isPlainShell, onProcessComplete, launchConfig, enhancedInputMode]);
 
   const setCurrentAuthUrl = useCallback((nextAuthUrl: string) => {
     authUrlRef.current = nextAuthUrl;
@@ -103,9 +110,10 @@ export function useShellRuntime({
     authUrlRef,
     copyAuthUrlToClipboard,
     closeSocket,
+    enhancedInputModeRef,
   });
 
-  const { isConnected, isConnecting, connectToShell, disconnectFromShell } = useShellConnection({
+  const { isConnected, isConnecting, connectToShell, disconnectFromShell, disconnectSocket } = useShellConnection({
     wsRef,
     terminalRef,
     fitAddonRef,
@@ -120,34 +128,64 @@ export function useShellRuntime({
     clearTerminalScreen,
     setAuthUrl: setCurrentAuthUrl,
     onOutputRef,
+    launchConfigRef,
   });
+
+  const sendInput = useCallback((data: string) => {
+    sendSocketMessage(wsRef.current, { type: 'input', data });
+  }, [wsRef]);
+
+  // Refit xterm to its container (for when the shell tab was display:none and is now visible).
+  const refitTerminal = useCallback(() => {
+    const t = terminalRef.current;
+    const f = fitAddonRef.current;
+    const socket = wsRef.current;
+    const container = terminalContainerRef.current;
+    if (!t || !f || !container) return;
+    // Skip if container hasn't been laid out yet — the ResizeObserver will catch it later.
+    if (container.clientWidth === 0 || container.clientHeight === 0) return;
+    try {
+      f.fit();
+    } catch {
+      return;
+    }
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      sendSocketMessage(socket, { type: 'resize', cols: t.cols, rows: t.rows });
+    }
+  }, []);
 
   useEffect(() => {
     if (!isRestarting) {
       return;
     }
 
-    disconnectFromShell();
+    disconnectSocket();
     disposeTerminal();
-  }, [disconnectFromShell, disposeTerminal, isRestarting]);
+  }, [disconnectSocket, disposeTerminal, isRestarting]);
 
   useEffect(() => {
     if (selectedProject) {
       return;
     }
 
-    disconnectFromShell();
+    disconnectSocket();
     disposeTerminal();
-  }, [disconnectFromShell, disposeTerminal, selectedProject]);
+  }, [disconnectSocket, disposeTerminal, selectedProject]);
 
   useEffect(() => {
     const currentSessionId = selectedSession?.id ?? null;
+    console.log('[ShellRuntime] session-change effect', {
+      previousSessionId: lastSessionIdRef.current,
+      currentSessionId,
+      isInitialized,
+      willDisconnect: lastSessionIdRef.current !== currentSessionId && isInitialized,
+    });
     if (lastSessionIdRef.current !== currentSessionId && isInitialized) {
-      disconnectFromShell();
+      disconnectSocket();
     }
 
     lastSessionIdRef.current = currentSessionId;
-  }, [disconnectFromShell, isInitialized, selectedSession?.id]);
+  }, [disconnectSocket, isInitialized, selectedSession?.id]);
 
   return {
     terminalContainerRef,
@@ -160,7 +198,10 @@ export function useShellRuntime({
     authUrlVersion,
     connectToShell,
     disconnectFromShell,
+    disconnectSocket,
     openAuthUrlInBrowser,
     copyAuthUrlToClipboard,
+    sendInput,
+    refitTerminal,
   };
 }

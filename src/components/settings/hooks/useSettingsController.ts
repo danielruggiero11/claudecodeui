@@ -799,6 +799,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
         uiPreferences: cached?.uiPreferences || {
           autoExpandTools: false, showRawParameters: false, showThinking: true,
           autoScrollToBottom: true, sendByCtrlEnter: false, sidebarVisible: true,
+          enhancedShellInput: false, enhancedShellInputActive: true, voiceStopOnSend: true,
         },
         codeEditor: {
           theme: codeEditorSettings.theme,

@@ -29,6 +29,7 @@ type UseShellTerminalOptions = {
   authUrlRef: MutableRefObject<string>;
   copyAuthUrlToClipboard: (url?: string) => Promise<boolean>;
   closeSocket: () => void;
+  enhancedInputModeRef?: MutableRefObject<boolean>;
 };
 
 type UseShellTerminalResult = {
@@ -50,6 +51,7 @@ export function useShellTerminal({
   authUrlRef,
   copyAuthUrlToClipboard,
   closeSocket,
+  enhancedInputModeRef,
 }: UseShellTerminalOptions): UseShellTerminalResult {
   const [isInitialized, setIsInitialized] = useState(false);
   const resizeTimeoutRef = useRef<number | null>(null);
@@ -177,6 +179,9 @@ export function useShellTerminal({
         event.preventDefault();
         event.stopPropagation();
 
+        // In enhanced input mode, paste goes to the textarea, not the PTY
+        if (enhancedInputModeRef?.current) return false;
+
         if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
           navigator.clipboard
             .readText()
@@ -192,13 +197,28 @@ export function useShellTerminal({
         return false;
       }
 
+      // In enhanced input mode, block all other keystrokes from reaching xterm.
+      // The terminal becomes output-only; all input goes through the ShellComposer.
+      if (enhancedInputModeRef?.current && event.type === 'keydown') {
+        // Still allow modifier-only keys (Shift, Ctrl, Alt, Meta) to pass through
+        if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return true;
+        return false;
+      }
+
       return true;
     });
 
     window.setTimeout(() => {
       const currentFitAddon = fitAddonRef.current;
       const currentTerminal = terminalRef.current;
-      if (!currentFitAddon || !currentTerminal) {
+      const container = terminalContainerRef.current;
+      if (!currentFitAddon || !currentTerminal || !container) {
+        return;
+      }
+      // If the shell tab isn't visible yet, container is 0×0 — leave the terminal at
+      // its TERMINAL_OPTIONS default (e.g. 80×24) instead of reflowing to nothing.
+      // The refitTerminal effect on isActive will fit properly once the tab opens.
+      if (container.clientWidth === 0 || container.clientHeight === 0) {
         return;
       }
 
@@ -213,6 +233,10 @@ export function useShellTerminal({
     setIsInitialized(true);
 
     const dataSubscription = nextTerminal.onData((data) => {
+      // When enhanced input mode is active, all keyboard input goes through
+      // the ShellComposer textarea instead of directly through xterm.js.
+      if (enhancedInputModeRef?.current) return;
+
       sendSocketMessage(wsRef.current, {
         type: 'input',
         data,
@@ -227,7 +251,15 @@ export function useShellTerminal({
       resizeTimeoutRef.current = window.setTimeout(() => {
         const currentFitAddon = fitAddonRef.current;
         const currentTerminal = terminalRef.current;
-        if (!currentFitAddon || !currentTerminal) {
+        const container = terminalContainerRef.current;
+        if (!currentFitAddon || !currentTerminal || !container) {
+          return;
+        }
+
+        // Skip fit() when the container is hidden (display:none → 0 size) so the
+        // terminal keeps its last-known good dimensions instead of being reflowed
+        // to ~0 cols. The refit on isActive handles the show-again case.
+        if (container.clientWidth === 0 || container.clientHeight === 0) {
           return;
         }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@xterm/xterm/css/xterm.css';
 import type { Project, ProjectSession } from '../../../types/app';
+import type { PermissionMode } from '../../chat/types/types';
 import {
   PROMPT_BUFFER_SCAN_LINES,
   PROMPT_DEBOUNCE_MS,
@@ -10,13 +11,21 @@ import {
   PROMPT_OPTION_SCAN_LINES,
   SHELL_RESTART_DELAY_MS,
 } from '../constants/constants';
+import { CLAUDE_MODELS } from '../../../../shared/modelConstants';
+import { getDefaultClaudeEffort } from '../../chat/constants/thinkingModes';
+import { useUiPreferences } from '../../../hooks/useUiPreferences';
+import { useVoiceInput, loadVoiceSettings } from '../../../hooks/useVoiceInput';
+import { useFlag } from '../../../contexts/FlagContext';
 import { useShellRuntime } from '../hooks/useShellRuntime';
+import { useShellComposerState } from '../hooks/useShellComposerState';
 import { sendSocketMessage } from '../utils/socket';
 import { getSessionDisplayName } from '../utils/auth';
+import type { ShellLaunchConfig } from '../types/types';
 import ShellConnectionOverlay from './subcomponents/ShellConnectionOverlay';
 import ShellEmptyState from './subcomponents/ShellEmptyState';
 import ShellHeader from './subcomponents/ShellHeader';
 import ShellMinimalView from './subcomponents/ShellMinimalView';
+import ShellComposer from './subcomponents/ShellComposer';
 import TerminalShortcutsPanel from './subcomponents/TerminalShortcutsPanel';
 
 type CliPromptOption = { number: string; label: string };
@@ -48,6 +57,61 @@ export default function Shell({
   const promptCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onOutputRef = useRef<(() => void) | null>(null);
 
+  // Enhanced shell input — master switch AND quick toggle must both be on
+  const { preferences } = useUiPreferences();
+  const enhancedShellInput = preferences.enhancedShellInput && preferences.enhancedShellInputActive && !minimal && !isPlainShell;
+
+  // Model / thinking / permission state for the shell composer
+  const [claudeModel, setClaudeModel] = useState(
+    () => localStorage.getItem('claude-model') || CLAUDE_MODELS.DEFAULT
+  );
+  const [thinkingMode, setThinkingModeState] = useState(() => getDefaultClaudeEffort());
+  const [permissionMode, setPermissionModeState] = useState(
+    () => localStorage.getItem('default-permission-mode') || 'default'
+  );
+
+  // Persist thinking mode and permission mode so the next shell launch picks them up.
+  // Claude Code CLI has no runtime /effort command, so these take effect on reconnect.
+  const setThinkingMode = useCallback<typeof setThinkingModeState>((value) => {
+    setThinkingModeState((prev) => {
+      const next = typeof value === 'function' ? (value as (p: string) => string)(prev) : value;
+      try { localStorage.setItem('claude-default-effort', next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const setPermissionMode = useCallback((mode: string) => {
+    setPermissionModeState(mode);
+    try { localStorage.setItem('default-permission-mode', mode); } catch { /* ignore */ }
+  }, []);
+
+  // Launch config — reflects current state so reconnects pick up changes.
+  const launchConfig = useMemo<ShellLaunchConfig>(() => ({
+    model: claudeModel,
+    effort: thinkingMode,
+    permissionMode,
+  }), [claudeModel, thinkingMode, permissionMode]);
+
+  // Flag mode
+  const { flagSession, unflagSession, isSessionFlagged } = useFlag();
+  const activeSessionId = selectedSession?.id ?? null;
+  const flagMode = activeSessionId ? isSessionFlagged(activeSessionId) : false;
+
+  const handleToggleFlag = useCallback(() => {
+    if (!activeSessionId) return;
+    if (isSessionFlagged(activeSessionId)) {
+      unflagSession(activeSessionId);
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'flag-mode-change', active: false });
+      }
+    } else {
+      flagSession(activeSessionId);
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'flag-mode-change', active: true });
+      }
+    }
+  }, [activeSessionId, flagSession, unflagSession, isSessionFlagged]);
+
   const {
     terminalContainerRef,
     terminalRef,
@@ -61,16 +125,24 @@ export default function Shell({
     disconnectFromShell,
     openAuthUrlInBrowser,
     copyAuthUrlToClipboard,
+    sendInput: runtimeSendInput,
+    refitTerminal,
   } = useShellRuntime({
     selectedProject,
     selectedSession,
     initialCommand,
     isPlainShell,
     minimal,
-    autoConnect,
+    // Defer auto-connect until the shell tab is actually visible. Connecting while
+    // display:none means xterm reports 0×0, the PTY spawns tiny, and the welcome
+    // banner gets painted squished. Once the tab is active and the container has
+    // real dimensions, auto-connect fires with the right cols/rows.
+    autoConnect: autoConnect && isActive,
     isRestarting,
     onProcessComplete,
     onOutputRef,
+    launchConfig,
+    enhancedInputMode: enhancedShellInput,
   });
 
   // Check xterm.js buffer for CLI prompt patterns (❯ N. label)
@@ -154,9 +226,77 @@ export default function Shell({
     }
   }, [isConnected]);
 
+  const sendInput = useCallback(
+    (data: string) => {
+      sendSocketMessage(wsRef.current, { type: 'input', data });
+    },
+    [wsRef],
+  );
+
+  // Model change handler — sends /model command to PTY and updates local state
+  const handleClaudeModelChange = useCallback((model: string) => {
+    setClaudeModel(model);
+    localStorage.setItem('claude-model', model);
+    if (isConnected) {
+      sendInput(`/model ${model}\r`);
+    }
+  }, [isConnected, sendInput]);
+
+  // Thinking mode change — sends /effort command to PTY at runtime
+  const handleThinkingModeChange = useCallback<typeof setThinkingMode>((value) => {
+    setThinkingMode((prev) => {
+      const next = typeof value === 'function' ? (value as (p: string) => string)(prev) : value;
+      if (isConnected) {
+        sendInput(`/effort ${next}\r`);
+      }
+      return next;
+    });
+  }, [isConnected, sendInput, setThinkingMode]);
+
+  // Ref-based after-submit hook so the callback always sees current state without
+  // needing to be a dep of the composer's handleSubmit useCallback.
+  const voiceStopStateRef = useRef({ voiceStopOnSend: preferences.voiceStopOnSend, isVoiceRecording: false, stop: () => {} });
+
+  // Shell composer state (only used when enhanced input is enabled)
+  const shellComposerState = useShellComposerState({
+    selectedProject: selectedProject ?? null,
+    wsRef,
+    isConnected,
+    sendInput: runtimeSendInput,
+    sendByCtrlEnter: preferences.sendByCtrlEnter,
+    onAfterSubmit: useCallback(() => {
+      if (voiceStopStateRef.current.voiceStopOnSend && voiceStopStateRef.current.isVoiceRecording) {
+        voiceStopStateRef.current.stop();
+      }
+    }, []),
+  });
+
+  // Refit xterm when the shell tab becomes visible (was display:none while user was on
+  // another tab). xterm can't measure itself while hidden, so it comes back squished
+  // unless we tell it to re-fit once the container has its real size.
+  useEffect(() => {
+    if (!isActive || !isInitialized) return;
+    // Two passes: one on next frame, one slightly later — covers most browser layout timings.
+    const raf = window.requestAnimationFrame(refitTerminal);
+    const timer = window.setTimeout(refitTerminal, 150);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+  }, [isActive, isInitialized, refitTerminal]);
+
+  // Focus management — textarea in enhanced mode, terminal otherwise
   useEffect(() => {
     if (!isActive || !isInitialized || !isConnected) {
       return;
+    }
+
+    // In enhanced input mode, focus the composer textarea so the user can type
+    if (enhancedShellInput) {
+      const timeoutId = window.setTimeout(() => {
+        shellComposerState.textareaRef.current?.focus();
+      }, 50);
+      return () => window.clearTimeout(timeoutId);
     }
 
     const focusTerminal = () => {
@@ -170,14 +310,112 @@ export default function Shell({
       window.cancelAnimationFrame(animationFrameId);
       window.clearTimeout(timeoutId);
     };
-  }, [isActive, isConnected, isInitialized, terminalRef]);
+  }, [isActive, isConnected, isInitialized, terminalRef, enhancedShellInput, shellComposerState.textareaRef]);
 
-  const sendInput = useCallback(
-    (data: string) => {
-      sendSocketMessage(wsRef.current, { type: 'input', data });
-    },
-    [wsRef],
-  );
+  // Voice input — same pattern as ChatInterface
+  const voiceSettings = loadVoiceSettings();
+  const voiceInterimLenRef = useRef(0);
+  const voiceInsertPosRef = useRef(0);
+
+  const autoResizeTextarea = useCallback(() => {
+    setTimeout(() => {
+      if (!shellComposerState.textareaRef.current) return;
+      shellComposerState.textareaRef.current.style.height = 'auto';
+      shellComposerState.textareaRef.current.style.height = `${shellComposerState.textareaRef.current.scrollHeight}px`;
+    }, 0);
+  }, [shellComposerState.textareaRef]);
+
+  const stripInterim = (prev: string): string => {
+    const len = voiceInterimLenRef.current;
+    if (len > 0) {
+      const end = voiceInsertPosRef.current;
+      const start = end - len;
+      if (start >= 0 && end <= prev.length) {
+        voiceInsertPosRef.current = start;
+        return prev.slice(0, start) + prev.slice(end);
+      }
+    }
+    return prev;
+  };
+
+  const handleVoiceFinalText = useCallback((text: string) => {
+    if (!text) return;
+    shellComposerState.setInput((prev: string) => {
+      const base = stripInterim(prev);
+      voiceInterimLenRef.current = 0;
+      const insertPos = voiceInsertPosRef.current;
+      const before = base.slice(0, insertPos);
+      const after = base.slice(insertPos);
+      const separator = before && !before.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      voiceInsertPosRef.current = insertPos + separator.length + text.length;
+      return before + separator + text + after;
+    });
+    autoResizeTextarea();
+  }, [shellComposerState.setInput, autoResizeTextarea]);
+
+  const handleVoiceInterimText = useCallback((text: string) => {
+    shellComposerState.setInput((prev: string) => {
+      const base = stripInterim(prev);
+      if (!text) {
+        voiceInterimLenRef.current = 0;
+        return base;
+      }
+      const insertPos = voiceInsertPosRef.current;
+      const before = base.slice(0, insertPos);
+      const after = base.slice(insertPos);
+      const separator = before && !before.endsWith(' ') && !text.startsWith(' ') ? ' ' : '';
+      const inserted = separator + text;
+      voiceInterimLenRef.current = inserted.length;
+      voiceInsertPosRef.current = insertPos + inserted.length;
+      return before + inserted + after;
+    });
+    autoResizeTextarea();
+  }, [shellComposerState.setInput, autoResizeTextarea]);
+
+  const handleVoiceCommandSend = useCallback(() => {
+    if (voiceInterimLenRef.current > 0) {
+      shellComposerState.setInput((prev: string) => {
+        const base = stripInterim(prev).trimEnd();
+        voiceInterimLenRef.current = 0;
+        return base;
+      });
+    }
+    setTimeout(() => {
+      shellComposerState.handleSubmit({ preventDefault: () => undefined } as React.FormEvent<HTMLFormElement>);
+    }, 150);
+  }, [shellComposerState.handleSubmit, shellComposerState.setInput]);
+
+  const {
+    isRecording: isVoiceRecording,
+    isSupported: isVoiceSupported,
+    error: voiceError,
+    debugLog: voiceDebugLog,
+    toggleRecording: rawToggleVoiceRecording,
+    stopRecording: rawStopVoiceRecording,
+  } = useVoiceInput({
+    onFinalText: handleVoiceFinalText,
+    onInterimText: handleVoiceInterimText,
+    onVoiceCommandSend: handleVoiceCommandSend,
+  });
+
+  // Keep the ref current so onAfterSubmit always sees the latest values.
+  // Use stopRecording directly (not toggle) so we never accidentally restart.
+  voiceStopStateRef.current = { voiceStopOnSend: preferences.voiceStopOnSend, isVoiceRecording, stop: rawStopVoiceRecording };
+
+  // Stop recording when the quick toggle turns off enhanced input
+  useEffect(() => {
+    if (!enhancedShellInput && isVoiceRecording) {
+      rawStopVoiceRecording();
+    }
+  }, [enhancedShellInput, isVoiceRecording, rawStopVoiceRecording]);
+
+  const toggleVoiceRecording = useCallback(() => {
+    if (!isVoiceRecording) {
+      voiceInsertPosRef.current = shellComposerState.textareaRef.current?.selectionStart ?? shellComposerState.input.length;
+    }
+    rawToggleVoiceRecording();
+  }, [isVoiceRecording, rawToggleVoiceRecording, shellComposerState.textareaRef, shellComposerState.input.length]);
+
 
   const sessionDisplayName = useMemo(() => getSessionDisplayName(selectedSession), [selectedSession]);
   const sessionDisplayNameShort = useMemo(
@@ -266,11 +504,11 @@ export default function Shell({
         disableRestart={isRestarting || isConnected}
       />
 
-      <div className="relative flex-1 overflow-hidden p-2">
+      <div className="relative z-0 flex-1 overflow-hidden p-2">
         <div
           ref={terminalContainerRef}
           className="h-full w-full focus:outline-none"
-          style={{ outline: 'none' }}
+          style={{ outline: 'none', pointerEvents: overlayMode ? 'none' : undefined }}
         />
 
         {overlayMode && (
@@ -320,11 +558,39 @@ export default function Shell({
         )}
       </div>
 
-      <TerminalShortcutsPanel
-        wsRef={wsRef}
-        terminalRef={terminalRef}
-        isConnected={isConnected}
-      />
+      {enhancedShellInput && isConnected ? (
+        <div className="relative z-10">
+        <ShellComposer
+          {...shellComposerState}
+          provider={selectedSession?.__provider || localStorage.getItem('selected-provider') || 'claude'}
+          claudeModel={claudeModel}
+          onClaudeModelChange={handleClaudeModelChange}
+          thinkingMode={thinkingMode}
+          setThinkingMode={handleThinkingModeChange}
+          permissionMode={permissionMode}
+          onSetPermissionMode={(mode: PermissionMode) => setPermissionMode(mode)}
+          flagMode={flagMode}
+          flagTriggered={flagMode}
+          onToggleFlag={handleToggleFlag}
+          sendByCtrlEnter={preferences.sendByCtrlEnter}
+          wsRef={wsRef}
+          sendInput={runtimeSendInput}
+          isVoiceRecording={isVoiceRecording}
+          isVoiceSupported={isVoiceSupported}
+          isVoiceEnabled={voiceSettings.enabled}
+          voiceError={voiceError}
+          voiceDebugLog={voiceDebugLog}
+          voiceShowDebug={voiceSettings.showDebug}
+          onToggleVoiceRecording={toggleVoiceRecording}
+        />
+        </div>
+      ) : (
+        <TerminalShortcutsPanel
+          wsRef={wsRef}
+          terminalRef={terminalRef}
+          isConnected={isConnected}
+        />
+      )}
 
     </div>
   );

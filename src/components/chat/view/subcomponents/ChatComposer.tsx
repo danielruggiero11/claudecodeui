@@ -105,6 +105,8 @@ interface ChatComposerProps {
   voiceDebugLog: VoiceDebugEntry[];
   voiceShowDebug: boolean;
   onToggleVoiceRecording: () => void;
+  hideTokenUsage?: boolean;
+  onShowContext?: () => void;
 }
 
 export default function ChatComposer({
@@ -174,6 +176,8 @@ export default function ChatComposer({
   voiceDebugLog,
   voiceShowDebug,
   onToggleVoiceRecording,
+  hideTokenUsage = false,
+  onShowContext,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const debugScrollRef = useRef<HTMLDivElement>(null);
@@ -221,6 +225,8 @@ export default function ChatComposer({
         />
 
         {!hasQuestionPanel && <ChatInputControls
+          hideTokenUsage={hideTokenUsage}
+          onShowContext={onShowContext}
           permissionMode={permissionMode}
           onSetPermissionMode={onSetPermissionMode}
           provider={provider}
@@ -448,13 +454,16 @@ export default function ChatComposer({
             )}
 
               <button
-                type="submit"
+                type="button"
               disabled={!input.trim() || isLoading}
               onMouseDown={(event) => {
                 event.preventDefault();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
                 onSubmit(event);
               }}
-              onTouchStart={(event) => {
+              onTouchEnd={(event) => {
                 event.preventDefault();
                 onSubmit(event);
               }}

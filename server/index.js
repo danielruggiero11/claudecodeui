@@ -49,7 +49,7 @@ import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getAct
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
 import { spawnGemini, abortGeminiSession, isGeminiSessionActive, getActiveGeminiSessions } from './gemini-cli.js';
-import { onSessionStatus } from './services/session-events.js';
+import { onSessionStatus, emitSessionStatus } from './services/session-events.js';
 import sessionManager from './sessionManager.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -69,8 +69,8 @@ import pluginsRoutes from './routes/plugins.js';
 import messagesRoutes from './routes/messages.js';
 import { createNormalizedMessage } from './providers/types.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
-import { db, initializeDatabase, sessionNamesDb, applyCustomSessionNames, userSettingsDb, flaggedSessionsDb, sessionReadStatusDb } from './database/db.js';
-import { initScraper, closeScraper, scrapeUsage, isEnabled as isScraperEnabled, isInitializing as isScraperInitializing, getCachedUsage, getDefaultProfilePath } from './claudeUsageScraper.js';
+import { db, initializeDatabase, sessionNamesDb, applyCustomSessionNames, userSettingsDb, flaggedSessionsDb, archivedSessionsDb, sessionReadStatusDb } from './database/db.js';
+import { initScraper, closeScraper, scrapeUsage, isEnabled as isScraperEnabled, isInitializing as isScraperInitializing, getCachedUsage, getDefaultProfilePath, getLastScrapeTimestamp } from './claudeUsageScraper.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -163,10 +163,21 @@ onSessionStatus((event) => {
     }
 });
 
-// Trigger a usage scrape after each session completes (debounced by scraper's own cache TTL)
+// Auto-unarchive when a session gets new activity (so archived chats resurface on new messages)
+onSessionStatus((event) => {
+    if (event.status === 'completed' || event.status === 'error') {
+        archivedSessionsDb.deleteForSession(event.sessionId);
+    }
+});
+
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+// Trigger a usage scrape after each session completes; force-refresh if last scrape was >1 hour ago
 onSessionStatus((event) => {
     if (event.status === 'completed' && isScraperEnabled()) {
-        scrapeUsage().then(data => {
+        const lastTs = getLastScrapeTimestamp();
+        const force = !lastTs || (Date.now() - lastTs > ONE_HOUR_MS);
+        scrapeUsage(force).then(data => {
             if (data) broadcastUsageUpdate(data);
         }).catch(() => {});
     }
@@ -191,6 +202,98 @@ async function setupProjectsWatcher() {
         })
     );
     projectsWatchers = [];
+
+    // JSONL-driven "responding" → "completed" status for sessions running outside the SDK
+    // (e.g. agent running in the shell). JSONL writes happen only on real agent output, so
+    // they're a reliable signal — but the agent pauses naturally between tool calls, so a
+    // pure debounce flickers. Instead, read the last JSONL entry: only mark "completed" when
+    // it's actually a terminal assistant message (stop_reason === 'end_turn').
+    const sessionStatusState = new Map(); // sessionId -> 'active' | 'completed'
+    const sessionLastLine = new Map(); // sessionId -> last JSONL line we evaluated
+
+    const readLastJsonlLine = async (filePath) => {
+        try {
+            const fd = await fsPromises.open(filePath, 'r');
+            try {
+                const stat = await fd.stat();
+                const size = stat.size;
+                if (size === 0) return null;
+                // Read the tail; 64KB is plenty for one JSONL entry even with embedded content.
+                const readSize = Math.min(size, 64 * 1024);
+                const buf = Buffer.alloc(readSize);
+                await fd.read(buf, 0, readSize, size - readSize);
+                const text = buf.toString('utf8');
+                // Trim trailing newline, then take the last line.
+                const trimmed = text.endsWith('\n') ? text.slice(0, -1) : text;
+                const lastNl = trimmed.lastIndexOf('\n');
+                return lastNl === -1 ? trimmed : trimmed.slice(lastNl + 1);
+            } finally {
+                await fd.close();
+            }
+        } catch {
+            return null;
+        }
+    };
+
+    const isTerminalEntry = (line) => {
+        if (!line) return false;
+        try {
+            const entry = JSON.parse(line);
+            // Claude Code JSONL: the assistant turn ends when stop_reason === 'end_turn'.
+            // tool_use / max_tokens / etc. mean more output is coming.
+            if (entry?.message?.role === 'assistant') {
+                const stopReason = entry.message.stop_reason;
+                return stopReason === 'end_turn' || stopReason === 'stop_sequence';
+            }
+            return false;
+        } catch {
+            return false;
+        }
+    };
+
+    const emitSessionFromJsonl = async (filePath, provider, eventType) => {
+        if (!filePath || !filePath.endsWith('.jsonl')) return;
+        const sessionId = path.basename(filePath, '.jsonl');
+        if (!sessionId) return;
+        const normalizedProvider = provider === 'gemini_sessions' ? 'gemini' : provider;
+
+        // If the SDK is already managing this session, skip — the SDK emits authoritative events.
+        if (normalizedProvider === 'claude' && isClaudeSDKSessionActive(sessionId)) {
+            return;
+        }
+
+        const lastLine = await readLastJsonlLine(filePath);
+        if (!lastLine) return;
+
+        // Dedupe: if the last line content hasn't actually changed (e.g. resume rewrites,
+        // file-touch events, no new agent output), do nothing. This is the key guard against
+        // status flicker on session switch, where `claude --resume` re-touches the file.
+        if (sessionLastLine.get(sessionId) === lastLine) return;
+        sessionLastLine.set(sessionId, lastLine);
+
+        const terminal = isTerminalEntry(lastLine);
+        const prevStatus = sessionStatusState.get(sessionId);
+
+        if (terminal) {
+            if (prevStatus !== 'completed') {
+                sessionStatusState.set(sessionId, 'completed');
+                emitSessionStatus(sessionId, normalizedProvider, 'completed');
+            }
+            return;
+        }
+
+        // Non-terminal entry. Emit "active" if either:
+        //   - we have a prior "completed" baseline (a real new turn has begun), OR
+        //   - this is an 'add' event (a brand-new session file created during runtime —
+        //     first ever turn, so the non-terminal entry is authoritative).
+        // For pre-existing files seen for the first time via 'change' (cold start, or
+        // `claude --resume` writing a resume marker), we don't speculate — that's the
+        // case that caused phantom "working" indicators on session switch.
+        if (prevStatus === 'completed' || eventType === 'add') {
+            sessionStatusState.set(sessionId, 'active');
+            emitSessionStatus(sessionId, normalizedProvider, 'active');
+        }
+    };
 
     const debouncedUpdate = (eventType, filePath, provider, rootPath) => {
         if (projectsWatcherDebounceTimer) {
@@ -261,8 +364,14 @@ async function setupProjectsWatcher() {
 
             // Set up event listeners
             watcher
-                .on('add', (filePath) => debouncedUpdate('add', filePath, provider, rootPath))
-                .on('change', (filePath) => debouncedUpdate('change', filePath, provider, rootPath))
+                .on('add', (filePath) => {
+                    emitSessionFromJsonl(filePath, provider, 'add').catch(() => {});
+                    debouncedUpdate('add', filePath, provider, rootPath);
+                })
+                .on('change', (filePath) => {
+                    emitSessionFromJsonl(filePath, provider, 'change').catch(() => {});
+                    debouncedUpdate('change', filePath, provider, rootPath);
+                })
                 .on('unlink', (filePath) => debouncedUpdate('unlink', filePath, provider, rootPath))
                 .on('addDir', (dirPath) => debouncedUpdate('addDir', dirPath, provider, rootPath))
                 .on('unlinkDir', (dirPath) => debouncedUpdate('unlinkDir', dirPath, provider, rootPath))
@@ -743,6 +852,7 @@ app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, 
         console.log(`[API] Deleting session: ${sessionId} from project: ${projectName}`);
         await deleteSession(projectName, sessionId);
         sessionNamesDb.deleteName(sessionId, 'claude');
+        archivedSessionsDb.deleteForSession(sessionId);
         console.log(`[API] Session ${sessionId} deleted successfully`);
         res.json({ success: true });
     } catch (error) {
@@ -804,6 +914,54 @@ app.put('/api/sessions/:sessionId/flag', authenticateToken, (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error(`[API] Error updating flag for session ${req.params.sessionId}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all archived session IDs for the current user
+app.get('/api/sessions/archived', authenticateToken, (req, res) => {
+    try {
+        const sessionIds = archivedSessionsDb.getAll(req.user.id);
+        res.json({ sessionIds });
+    } catch (error) {
+        console.error('[API] Error fetching archived sessions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Archive or unarchive a single session
+app.put('/api/sessions/:sessionId/archive', authenticateToken, (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
+        if (!safeSessionId || safeSessionId !== String(sessionId)) {
+            return res.status(400).json({ error: 'Invalid sessionId' });
+        }
+        const { archived } = req.body;
+        if (typeof archived !== 'boolean') {
+            return res.status(400).json({ error: 'archived must be a boolean' });
+        }
+        archivedSessionsDb.set(req.user.id, safeSessionId, archived);
+        res.json({ success: true });
+    } catch (error) {
+        console.error(`[API] Error updating archive for session ${req.params.sessionId}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Bulk archive sessions (for auto-archive feature)
+app.post('/api/sessions/archive-bulk', authenticateToken, (req, res) => {
+    try {
+        const { sessionIds } = req.body;
+        if (!Array.isArray(sessionIds) || sessionIds.some(id => typeof id !== 'string')) {
+            return res.status(400).json({ error: 'sessionIds must be an array of strings' });
+        }
+        const safeIds = sessionIds.map(id => String(id).replace(/[^a-zA-Z0-9._-]/g, ''))
+                                   .filter(id => id.length > 0);
+        archivedSessionsDb.setBulk(req.user.id, safeIds);
+        res.json({ success: true, count: safeIds.length });
+    } catch (error) {
+        console.error('[API] Error bulk archiving sessions:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1929,6 +2087,34 @@ function handleShellConnection(ws) {
     console.log('🐚 Shell client connected');
     let shellProcess = null;
     let ptySessionKey = null;
+    // Sequential write queue — ensures \r never races ahead of chunked large pastes
+    const writeQueue = [];
+    let isWriting = false;
+    const flushWriteQueue = () => {
+        if (isWriting || writeQueue.length === 0) return;
+        const text = writeQueue.shift();
+        const CHUNK_SIZE = 1024;
+        if (text.length <= CHUNK_SIZE) {
+            try { if (shellProcess) shellProcess.write(text); } catch (e) { console.error('PTY write error:', e); }
+            isWriting = false;
+            flushWriteQueue();
+        } else {
+            isWriting = true;
+            let offset = 0;
+            const writeChunk = () => {
+                if (!shellProcess) { isWriting = false; flushWriteQueue(); return; }
+                try { shellProcess.write(text.slice(offset, offset + CHUNK_SIZE)); } catch (e) { console.error('PTY write error:', e); }
+                offset += CHUNK_SIZE;
+                if (offset < text.length) {
+                    setTimeout(writeChunk, 8);
+                } else {
+                    isWriting = false;
+                    flushWriteQueue();
+                }
+            };
+            writeChunk();
+        }
+    };
     let urlDetectionBuffer = '';
     const announcedAuthUrls = new Set();
 
@@ -1944,6 +2130,9 @@ function handleShellConnection(ws) {
                 const provider = data.provider || 'claude';
                 const initialCommand = data.initialCommand;
                 const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell';
+                const launchModel = data.model || null;
+                const launchEffort = data.effort || null;
+                const launchPermissionMode = data.permissionMode || null;
                 urlDetectionBuffer = '';
                 announcedAuthUrls.clear();
 
@@ -1960,6 +2149,32 @@ function handleShellConnection(ws) {
                     : '';
                 ptySessionKey = `${projectPath}_${sessionId || 'default'}${commandSuffix}`;
 
+                console.log('[ShellSrv] init received', {
+                    projectPath,
+                    sessionId,
+                    hasSession,
+                    isPlainShell,
+                    provider,
+                    ptySessionKey,
+                    existingKeys: Array.from(ptySessionsMap.keys()),
+                });
+
+                // When reconnecting with a real sessionId, kill any orphaned _default PTY
+                // for this project. That PTY was the original "fresh shell" for what's now
+                // this same session — keeping it alive causes a later "New Session" click
+                // (which connects with sessionId=null → _default key) to reattach to the
+                // stale conversation buffer instead of getting a clean shell.
+                if (sessionId && !isPlainShell && !isLoginCommand) {
+                    const defaultKey = `${projectPath}_default`;
+                    const orphaned = ptySessionsMap.get(defaultKey);
+                    if (orphaned) {
+                        console.log('🧹 Cleaning up orphaned _default PTY (session has a real ID now):', defaultKey);
+                        if (orphaned.timeoutId) clearTimeout(orphaned.timeoutId);
+                        if (orphaned.pty && orphaned.pty.kill) orphaned.pty.kill();
+                        ptySessionsMap.delete(defaultKey);
+                    }
+                }
+
                 // Kill any existing login session before starting fresh
                 if (isLoginCommand) {
                     const oldSession = ptySessionsMap.get(ptySessionKey);
@@ -1972,6 +2187,11 @@ function handleShellConnection(ws) {
                 }
 
                 const existingSession = isLoginCommand ? null : ptySessionsMap.get(ptySessionKey);
+                console.log('[ShellSrv] existingSession lookup', {
+                    ptySessionKey,
+                    found: !!existingSession,
+                    bufferLen: existingSession?.buffer?.length ?? 0,
+                });
                 if (existingSession) {
                     console.log('♻️  Reconnecting to existing PTY session:', ptySessionKey);
                     shellProcess = existingSession.pty;
@@ -2096,15 +2316,25 @@ function handleShellConnection(ws) {
                         }
                     } else {
                         // Claude (default provider)
+                        // Build launch flags from client-provided defaults
+                        const claudeFlags = [];
+                        if (launchModel && launchModel !== 'sonnet') {
+                            claudeFlags.push(`--model "${launchModel}"`);
+                        }
+                        if (launchPermissionMode === 'bypassPermissions') {
+                            claudeFlags.push('--dangerously-skip-permissions');
+                        }
+                        const flagStr = claudeFlags.length > 0 ? ' ' + claudeFlags.join(' ') : '';
+
                         const command = initialCommand || 'claude';
                         if (hasSession && sessionId) {
                             if (os.platform() === 'win32') {
-                                shellCommand = `claude --resume "${sessionId}"; if ($LASTEXITCODE -ne 0) { claude }`;
+                                shellCommand = `claude${flagStr} --resume "${sessionId}"; if ($LASTEXITCODE -ne 0) { claude${flagStr} }`;
                             } else {
-                                shellCommand = `claude --resume "${sessionId}" || claude`;
+                                shellCommand = `claude${flagStr} --resume "${sessionId}" || claude${flagStr}`;
                             }
                         } else {
-                            shellCommand = command;
+                            shellCommand = command + flagStr;
                         }
                     }
 
@@ -2242,13 +2472,11 @@ function handleShellConnection(ws) {
                 }
 
             } else if (data.type === 'input') {
-                // Send input to shell process
+                // Send input to shell process via write queue so sequential messages
+                // (e.g. large paste followed by \r) are never reordered.
                 if (shellProcess && shellProcess.write) {
-                    try {
-                        shellProcess.write(data.data);
-                    } catch (error) {
-                        console.error('Error writing to shell:', error);
-                    }
+                    writeQueue.push(data.data);
+                    flushWriteQueue();
                 } else {
                     console.warn('No active shell process to send input to');
                 }
@@ -2529,6 +2757,59 @@ app.post('/api/projects/:projectName/upload-images', authenticateToken, async (r
         });
     } catch (error) {
         console.error('Error in image upload endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Shell image upload endpoint — saves to disk and returns file paths (for PTY input)
+app.post('/api/projects/:projectName/upload-images-for-shell', authenticateToken, async (req, res) => {
+    try {
+        const multer = (await import('multer')).default;
+        const pathMod = (await import('path')).default;
+        const fsp = (await import('fs')).promises;
+
+        // Resolve the project path to save images inside the project's .tmp directory
+        let projectRoot;
+        try {
+            projectRoot = await extractProjectDirectory(req.params.projectName);
+        } catch {
+            return res.status(400).json({ error: 'Could not resolve project path' });
+        }
+
+        const timestamp = Date.now().toString();
+        const destDir = pathMod.join(projectRoot, '.tmp', 'images', timestamp);
+        await fsp.mkdir(destDir, { recursive: true });
+
+        const storage = multer.diskStorage({
+            destination: (_req, _file, cb) => cb(null, destDir),
+            filename: (_req, file, cb) => {
+                const idx = _req._shellImageIndex = (_req._shellImageIndex || 0);
+                _req._shellImageIndex = idx + 1;
+                const ext = file.mimetype.split('/')[1] || 'png';
+                cb(null, `image_${idx}.${ext}`);
+            }
+        });
+
+        const fileFilter = (_req, file, cb) => {
+            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+            cb(null, allowedMimes.includes(file.mimetype));
+        };
+
+        const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024, files: 5 } });
+
+        upload.array('images', 5)(req, res, async (err) => {
+            if (err) return res.status(400).json({ error: err.message });
+            if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No image files provided' });
+
+            const files = req.files.map((file) => ({
+                name: file.originalname,
+                path: file.path,
+            }));
+
+            res.json({ files });
+        });
+    } catch (error) {
+        console.error('Error in shell image upload endpoint:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

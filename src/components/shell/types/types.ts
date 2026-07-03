@@ -5,6 +5,12 @@ import type { Project, ProjectSession } from '../../../types/app';
 
 export type AuthCopyStatus = 'idle' | 'copied' | 'failed';
 
+export type ShellLaunchConfig = {
+  model: string;
+  effort: string;
+  permissionMode: string;
+};
+
 export type ShellInitMessage = {
   type: 'init';
   projectPath: string;
@@ -15,6 +21,9 @@ export type ShellInitMessage = {
   rows: number;
   initialCommand: string | null | undefined;
   isPlainShell: boolean;
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
 };
 
 export type ShellResizeMessage = {
@@ -46,6 +55,8 @@ export type UseShellRuntimeOptions = {
   isRestarting: boolean;
   onProcessComplete?: ((exitCode: number) => void) | null;
   onOutputRef?: MutableRefObject<(() => void) | null>;
+  launchConfig?: ShellLaunchConfig;
+  enhancedInputMode?: boolean;
 };
 
 export type ShellSharedRefs = {
@@ -71,6 +82,9 @@ export type UseShellRuntimeResult = {
   authUrlVersion: number;
   connectToShell: () => void;
   disconnectFromShell: () => void;
+  disconnectSocket: () => void;
   openAuthUrlInBrowser: (url?: string) => boolean;
   copyAuthUrlToClipboard: (url?: string) => Promise<boolean>;
+  sendInput: (data: string) => void;
+  refitTerminal: () => void;
 };

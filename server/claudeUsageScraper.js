@@ -32,6 +32,7 @@ let pyProc        = null;   // child_process
 let scraperEnabled = false;
 let lastCache      = null;  // { data, timestamp }
 let scrapeInProgress = false;
+let scrapeWaiters  = [];    // callers waiting on an in-progress scrape
 let initPromise    = null;  // in-flight initScraper promise (prevents double-init)
 
 // Strictly serial request queue: one outstanding command at a time
@@ -50,6 +51,7 @@ export function getDefaultProfilePath() {
 
 export function isEnabled()     { return scraperEnabled; }
 export function getCachedUsage() { return lastCache?.data || null; }
+export function getLastScrapeTimestamp() { return lastCache?.timestamp || null; }
 
 // ── Internal: process I/O ───────────────────────────────────────────────
 
@@ -211,12 +213,13 @@ export async function scrapeUsage(force = false) {
         return lastCache.data;
     }
 
-    // Queue guard — if already scraping, return whatever we have
+    // If a scrape is already running, wait for it to finish instead of returning null
     if (scrapeInProgress) {
-        return lastCache?.data || null;
+        return new Promise((resolve) => { scrapeWaiters.push(resolve); });
     }
 
     scrapeInProgress = true;
+    let result;
     try {
         const resp = await sendCommand({ cmd: 'scrape' });
 
@@ -234,6 +237,7 @@ export async function scrapeUsage(force = false) {
         }
 
         lastCache = { data, timestamp: Date.now() };
+        result = data;
         return data;
     } catch (err) {
         console.error('[ClaudeUsage] sendCommand error:', err.message);
@@ -244,9 +248,12 @@ export async function scrapeUsage(force = false) {
             lastUpdated: lastCache?.data?.lastUpdated || null,
         };
         lastCache = { data, timestamp: Date.now() };
+        result = data;
         return data;
     } finally {
         scrapeInProgress = false;
+        const waiters = scrapeWaiters.splice(0);
+        waiters.forEach(resolve => resolve(result));
     }
 }
 

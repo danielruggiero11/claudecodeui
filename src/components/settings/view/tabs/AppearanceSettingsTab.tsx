@@ -8,6 +8,7 @@ import { getCachedSettings, updateSettingsPartial } from '../../../../utils/sett
 import { authenticatedFetch } from '../../../../utils/api';
 import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS } from '../../../../../shared/modelConstants';
 import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
+import { useUiPreferences } from '../../../../hooks/useUiPreferences';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
@@ -35,6 +36,7 @@ export default function AppearanceSettingsTab({
   onCodeEditorFontSizeChange,
 }: AppearanceSettingsTabProps) {
   const { t } = useTranslation('settings');
+  const { preferences, setPreference } = useUiPreferences();
 
   // Default tab setting
   const [defaultTab, setDefaultTab] = useState(() => {
@@ -242,6 +244,32 @@ export default function AppearanceSettingsTab({
               checked={mobileShowSidebar}
               onChange={handleMobileSidebarChange}
               ariaLabel="Show projects on mobile launch"
+            />
+          </SettingsRow>
+
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Shell">
+        <SettingsCard divided>
+          <SettingsRow
+            label="Enhanced Shell Input"
+            description="Use the chat-style input area in the shell (voice, image paste, model selector)"
+          >
+            <SettingsToggle
+              checked={preferences.enhancedShellInput}
+              onChange={(v) => setPreference('enhancedShellInput', v)}
+              ariaLabel="Enable enhanced shell input"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Stop Recording on Send"
+            description="Stop voice recording automatically after submitting a message"
+          >
+            <SettingsToggle
+              checked={preferences.voiceStopOnSend}
+              onChange={(v) => setPreference('voiceStopOnSend', v)}
+              ariaLabel="Stop voice recording on send"
             />
           </SettingsRow>
         </SettingsCard>

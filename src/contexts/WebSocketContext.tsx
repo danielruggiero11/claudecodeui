@@ -35,13 +35,29 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { token } = useAuth();
 
+  // Only set unmountedRef on actual component destroy — NOT on token change re-runs.
+  // Putting it in the [token] cleanup would block reconnection after token refresh.
   useEffect(() => {
-    connect();
-    
     return () => {
       unmountedRef.current = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Entering a new token epoch: cancel any pending reconnect from the previous one
+    // and reset the unmount guard so connect() is allowed to run.
+    unmountedRef.current = false;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    connect();
+
+    return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
         wsRef.current.close();
@@ -56,7 +72,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       const wsUrl = buildWebSocketUrl(token);
 
       if (!wsUrl) return console.warn('No authentication token found for WebSocket connection');
-      
+
       const websocket = new WebSocket(wsUrl);
 
       websocket.onopen = () => {
@@ -83,11 +99,11 @@ const useWebSocketProviderState = (): WebSocketContextType => {
         setIsConnected(false);
         wsRef.current = null;
 
-        // Attempt to reconnect after 3 seconds
+        // Attempt to reconnect after 1 second
         reconnectTimeoutRef.current = setTimeout(() => {
           if (unmountedRef.current) return; // Prevent reconnection if unmounted
           connect();
-        }, 3000);
+        }, 1000);
       };
 
       websocket.onerror = () => {

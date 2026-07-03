@@ -63,6 +63,10 @@ function Sidebar({
     searchMode,
     setSearchMode,
     recentConversations,
+    archivedConversations,
+    isSessionArchived,
+    archiveSession,
+    unarchiveSession,
     conversationResults,
     isSearching,
     searchProgress,
@@ -235,6 +239,9 @@ function Sidebar({
               if (mode === 'projects') clearConversationResults();
             }}
             recentConversations={recentConversations}
+            archivedConversations={archivedConversations}
+            onArchiveSession={archiveSession}
+            onUnarchiveSession={unarchiveSession}
             conversationResults={conversationResults}
             isSearching={isSearching}
             searchProgress={searchProgress}

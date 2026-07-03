@@ -1,5 +1,5 @@
-import { type ReactNode } from 'react';
-import { Clock, Folder, MessageSquare, Search } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
+import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Clock, Folder, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
@@ -8,6 +8,7 @@ import type { ConversationSearchResults, RecentConversation, SearchProgress } fr
 import { getSessionName, getSessionDate } from '../../utils/utils';
 import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
 import { useFlag } from '../../../../contexts/FlagContext';
+import { useArchive } from '../../../../contexts/ArchiveContext';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
@@ -65,6 +66,9 @@ type SidebarContentProps = {
   searchMode: SearchMode;
   onSearchModeChange: (mode: SearchMode) => void;
   recentConversations: RecentConversation[];
+  archivedConversations: RecentConversation[];
+  onArchiveSession: (sessionId: string) => void;
+  onUnarchiveSession: (sessionId: string) => void;
   conversationResults: ConversationSearchResults | null;
   isSearching: boolean;
   searchProgress: SearchProgress | null;
@@ -89,6 +93,9 @@ export default function SidebarContent({
   searchMode,
   onSearchModeChange,
   recentConversations,
+  archivedConversations,
+  onArchiveSession,
+  onUnarchiveSession,
   conversationResults,
   isSearching,
   searchProgress,
@@ -103,6 +110,8 @@ export default function SidebarContent({
 }: SidebarContentProps) {
   const { statusMap } = useSessionStatus();
   const { isSessionFlagged } = useFlag();
+  const { isSessionArchived } = useArchive();
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const showRecentConversations = searchMode === 'conversations' && searchFilter.trim().length < 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
@@ -185,7 +194,10 @@ export default function SidebarContent({
                   {projectResult.sessions.map((session) => (
                     <button
                       key={`${projectResult.projectName}-${session.sessionId}`}
-                      className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
+                      className={cn(
+                        'w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50',
+                        isSessionArchived(session.sessionId) && 'opacity-50',
+                      )}
                       onClick={() => onConversationResultClick(
                         projectResult.projectName,
                         session.sessionId,
@@ -199,6 +211,11 @@ export default function SidebarContent({
                         <span className="truncate text-xs font-medium text-foreground">
                           {session.sessionSummary}
                         </span>
+                        {isSessionArchived(session.sessionId) && (
+                          <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                            Archived
+                          </span>
+                        )}
                         {session.provider && session.provider !== 'claude' && (
                           <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
                             {session.provider}
@@ -225,64 +242,163 @@ export default function SidebarContent({
             </div>
           ) : null
         ) : showRecentConversations ? (
-          recentConversations.length > 0 ? (
+          recentConversations.length > 0 || archivedConversations.length > 0 ? (
             <div className="space-y-1 px-2">
-              <div className="flex items-center gap-1.5 px-1 pb-1">
-                <Clock className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('search.recentConversations', 'Recent Conversations')}
-                </span>
-              </div>
-              {recentConversations.map((item) => {
-                const sessionDate = getSessionDate(item.session);
-                const sessionName = getSessionName(item.session, t);
-                const sessionLiveStatus = statusMap[item.session.id]?.status || 'idle';
-                return (
+              {recentConversations.length > 0 && (
+                <>
+                  <div className="flex items-center gap-1.5 px-1 pb-1">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      {t('search.recentConversations', 'Recent Conversations')}
+                    </span>
+                  </div>
+                  {recentConversations.map((item) => {
+                    const sessionDate = getSessionDate(item.session);
+                    const sessionName = getSessionName(item.session, t);
+                    const sessionLiveStatus = statusMap[item.session.id]?.status || 'idle';
+                    return (
+                      <div key={`${item.projectName}-${item.session.id}`} className="group relative">
+                        <button
+                          className="w-full rounded-md px-2 py-2 pr-8 text-left transition-colors hover:bg-accent/50 relative"
+                          onClick={() => onConversationResultClick(
+                            item.projectName,
+                            item.session.id,
+                            item.provider,
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <Folder className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
+                              <span className="truncate text-[11px] text-muted-foreground">
+                                {item.projectDisplayName}
+                              </span>
+                            </div>
+                            <div className="flex flex-shrink-0 items-center gap-1.5">
+                              {sessionLiveStatus === 'responding' && <TypingDots className="scale-75" />}
+                              {sessionLiveStatus === 'response-ready' ? (
+                                <div className="h-2 w-2 rounded-full bg-primary" />
+                              ) : isSessionFlagged(item.session.id) && sessionLiveStatus === 'idle' ? (
+                                <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                              ) : null}
+                              <span className="text-[10px] text-muted-foreground/50">
+                                {formatRelativeTime(sessionDate)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-1.5 pl-0.5">
+                            <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
+                            <span className={cn(
+                              'truncate text-xs text-foreground',
+                              sessionLiveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
+                            )}>
+                              {sessionName}
+                            </span>
+                            {item.provider !== 'claude' && (
+                              <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                                {item.provider}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                        <button
+                          className={cn(
+                            'absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded',
+                            'hover:bg-accent/80 active:scale-95 transition-all',
+                            isMobile ? 'opacity-60' : 'opacity-0 group-hover:opacity-60',
+                          )}
+                          onClick={(e) => { e.stopPropagation(); onArchiveSession(item.session.id); }}
+                          title="Archive"
+                        >
+                          <Archive className="h-3 w-3 text-muted-foreground" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Archived section — collapsible */}
+              {archivedConversations.length > 0 && (
+                <div className="pt-2">
                   <button
-                    key={`${item.projectName}-${item.session.id}`}
-                    className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50 relative"
-                    onClick={() => onConversationResultClick(
-                      item.projectName,
-                      item.session.id,
-                      item.provider,
-                    )}
+                    className="flex w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left hover:bg-accent/30"
+                    onClick={() => setArchivedOpen(v => !v)}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <Folder className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
-                        <span className="truncate text-[11px] text-muted-foreground">
-                          {item.projectDisplayName}
-                        </span>
-                      </div>
-                      <div className="flex flex-shrink-0 items-center gap-1.5">
-                        {sessionLiveStatus === 'responding' && <TypingDots className="scale-75" />}
-                        {sessionLiveStatus === 'response-ready' ? (
-                          <div className="h-2 w-2 rounded-full bg-primary" />
-                        ) : isSessionFlagged(item.session.id) && sessionLiveStatus === 'idle' ? (
-                          <div className="h-2 w-2 rounded-full bg-yellow-500" />
-                        ) : null}
-                        <span className="text-[10px] text-muted-foreground/50">
-                          {formatRelativeTime(sessionDate)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 pl-0.5">
-                      <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
-                      <span className={cn(
-                        'truncate text-xs text-foreground',
-                        sessionLiveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
-                      )}>
-                        {sessionName}
-                      </span>
-                      {item.provider !== 'claude' && (
-                        <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
-                          {item.provider}
-                        </span>
-                      )}
-                    </div>
+                    {archivedOpen
+                      ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                      : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                    }
+                    <Archive className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Archived ({archivedConversations.length})
+                    </span>
                   </button>
-                );
-              })}
+                  {archivedOpen && (
+                    <div className="mt-1 space-y-1">
+                      {archivedConversations.map((item) => {
+                        const sessionDate = getSessionDate(item.session);
+                        const sessionName = getSessionName(item.session, t);
+                        const sessionLiveStatus = statusMap[item.session.id]?.status || 'idle';
+                        return (
+                          <div key={`arch-${item.projectName}-${item.session.id}`} className="group relative opacity-50">
+                            <button
+                              className="w-full rounded-md px-2 py-2 pr-8 text-left transition-colors hover:bg-accent/50"
+                              onClick={() => onConversationResultClick(
+                                item.projectName,
+                                item.session.id,
+                                item.provider,
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <Folder className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
+                                  <span className="truncate text-[11px] text-muted-foreground">
+                                    {item.projectDisplayName}
+                                  </span>
+                                </div>
+                                <div className="flex flex-shrink-0 items-center gap-1.5">
+                                  {sessionLiveStatus === 'responding' && <TypingDots className="scale-75" />}
+                                  {sessionLiveStatus === 'response-ready' ? (
+                                    <div className="h-2 w-2 rounded-full bg-primary" />
+                                  ) : null}
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                                    Archived
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground/50">
+                                    {formatRelativeTime(sessionDate)}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="mt-0.5 flex items-center gap-1.5 pl-0.5">
+                                <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
+                                <span className="truncate text-xs text-foreground font-normal">
+                                  {sessionName}
+                                </span>
+                                {item.provider !== 'claude' && (
+                                  <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                                    {item.provider}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                            <button
+                              className={cn(
+                                'absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded',
+                                'hover:bg-accent/80 active:scale-95 transition-all',
+                                isMobile ? 'opacity-60' : 'opacity-0 group-hover:opacity-100',
+                              )}
+                              onClick={(e) => { e.stopPropagation(); onUnarchiveSession(item.session.id); }}
+                              title="Unarchive"
+                            >
+                              <ArchiveRestore className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div className="px-4 py-12 text-center md:py-8">

@@ -464,7 +464,7 @@ export function useChatComposerState({
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
     ) => {
       event.preventDefault();
-      const currentInput = inputValueRef.current;
+      const currentInput = textareaRef.current?.value ?? inputValueRef.current;
       if (!currentInput.trim() || isLoading || !selectedProject) {
         return;
       }

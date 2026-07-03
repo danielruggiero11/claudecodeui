@@ -36,6 +36,9 @@ export interface PersistedSettings {
     autoScrollToBottom: boolean;
     sendByCtrlEnter: boolean;
     sidebarVisible: boolean;
+    enhancedShellInput: boolean;
+    enhancedShellInputActive: boolean;
+    voiceStopOnSend: boolean;
   };
   codeEditor: {
     theme: string;
@@ -258,6 +261,9 @@ export function buildSettingsFromLocalStorage(): Partial<PersistedSettings> {
       autoScrollToBottom: uiPrefs.autoScrollToBottom !== false,
       sendByCtrlEnter: uiPrefs.sendByCtrlEnter === true,
       sidebarVisible: uiPrefs.sidebarVisible !== false,
+      enhancedShellInput: uiPrefs.enhancedShellInput === true,
+      enhancedShellInputActive: uiPrefs.enhancedShellInputActive !== false,
+      voiceStopOnSend: uiPrefs.voiceStopOnSend !== false,
     },
     codeEditor: {
       theme: localStorage.getItem('codeEditorTheme') || 'dark',

@@ -1,4 +1,4 @@
-import { Check, Clock, Edit2, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, Clock, Edit2, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Badge, Button } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
@@ -8,6 +8,7 @@ import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel } from '../../utils/utils';
 import { useSessionStatus } from '../../../../contexts/SessionStatusContext';
 import { useFlag } from '../../../../contexts/FlagContext';
+import { useArchive } from '../../../../contexts/ArchiveContext';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import TypingDots from './TypingDots';
 
@@ -51,8 +52,10 @@ export default function SidebarSessionItem({
 }: SidebarSessionItemProps) {
   const { getSessionLiveStatus } = useSessionStatus();
   const { isSessionFlagged } = useFlag();
+  const { isSessionArchived, archiveSession, unarchiveSession } = useArchive();
   const liveStatus = getSessionLiveStatus(session.id);
   const isFlagged = isSessionFlagged(session.id);
+  const isArchived = isSessionArchived(session.id);
   const sessionView = createSessionViewModel(session, currentTime, t, liveStatus);
   const isSelected = selectedSession?.id === session.id;
 
@@ -69,8 +72,13 @@ export default function SidebarSessionItem({
     onDeleteSession(project.name, session.id, sessionView.sessionName, session.__provider);
   };
 
+  const toggleArchive = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    isArchived ? unarchiveSession(session.id) : archiveSession(session.id);
+  };
+
   return (
-    <div className="group relative">
+    <div className={cn('group relative', isArchived && 'opacity-50')}>
 
       <div className="md:hidden">
         <div
@@ -121,6 +129,16 @@ export default function SidebarSessionItem({
               </div>
             </div>
 
+            <button
+              className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-gray-50 opacity-70 transition-transform active:scale-95 dark:bg-gray-900/20"
+              onClick={toggleArchive}
+              title={isArchived ? 'Unarchive' : 'Archive'}
+            >
+              {isArchived
+                ? <ArchiveRestore className="h-2.5 w-2.5 text-gray-600 dark:text-gray-400" />
+                : <Archive className="h-2.5 w-2.5 text-gray-600 dark:text-gray-400" />
+              }
+            </button>
             {!sessionView.isCursorSession && (
               <button
                 className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-red-50 opacity-70 transition-transform active:scale-95 dark:bg-red-900/20"
@@ -148,10 +166,17 @@ export default function SidebarSessionItem({
           <div className="flex w-full min-w-0 items-start gap-2">
             <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
             <div className="min-w-0 flex-1">
-              <div className={cn(
-                'truncate text-xs text-foreground',
-                liveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
-              )}>{sessionView.sessionName}</div>
+              <div className="flex items-center gap-1">
+                <span className={cn(
+                  'truncate text-xs text-foreground',
+                  liveStatus !== 'idle' ? 'font-semibold' : 'font-normal',
+                )}>{sessionView.sessionName}</span>
+                {isArchived && (
+                  <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                    Archived
+                  </span>
+                )}
+              </div>
               <div className="mt-0.5 flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">
@@ -229,6 +254,16 @@ export default function SidebarSessionItem({
                   title={t('tooltips.editSessionName')}
                 >
                   <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                </button>
+                <button
+                  className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  onClick={toggleArchive}
+                  title={isArchived ? 'Unarchive session' : 'Archive session'}
+                >
+                  {isArchived
+                    ? <ArchiveRestore className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                    : <Archive className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  }
                 </button>
                 {!sessionView.isCursorSession && (
                   <button

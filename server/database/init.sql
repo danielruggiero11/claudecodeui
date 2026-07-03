@@ -125,6 +125,18 @@ CREATE TABLE IF NOT EXISTS flagged_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_flagged_sessions_user ON flagged_sessions(user_id);
 
+-- Archived sessions (persisted server-side for cross-device sync)
+CREATE TABLE IF NOT EXISTS archived_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, session_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_archived_sessions_user ON archived_sessions(user_id);
+
 -- App configuration table (auto-generated secrets, settings, etc.)
 CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,
